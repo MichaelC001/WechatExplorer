@@ -41,6 +41,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const imageContainerRef = useRef<HTMLDivElement>(null)
   const [generatedImage, setGeneratedImage] = useState<string | null>(null)
+  const [showAvatar, setShowAvatar] = useState(false)
 
   const [colWidths, setColWidths] = useState([150, 100, 180, 400])
   const [resizingColIndex, setResizingColIndex] = useState<number | null>(null)
@@ -292,14 +293,29 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                   {msg.datetime}
                 </td>
                 <td style={{ wordBreak: 'break-all', display: 'flex', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', marginRight: 12 }}>
-                    <span>{msg.name}</span>
-                    {msg?.img && (
-                      <img style={{ width: '50px', height: '50px' }} src={msg?.img}></img>
-                    )}
+                  {showAvatar && msg?.img && (
+                    <img style={{ width: '40px', height: '40px' }} src={msg?.img}></img>
+                  )}
+                  <div
+                    style={{
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      display: !showAvatar ? 'flex' : 'block'
+                    }}
+                  >
+                    {msg.name && <div style={{ fontSize: 18 }}>{msg.name}: </div>}
+                    <div
+                      style={{
+                        fontSize: 18,
+                        background: '#fff',
+                        margin: 4,
+                        padding: 4,
+                        borderRadius: '4px'
+                      }}
+                    >
+                      {msg.content}
+                    </div>
                   </div>
-                  {/* <span style={{ marginRight: '24px' }}>:</span> */}
-                  <div>{msg.content}</div>
                 </td>
               </tr>
             ))}
@@ -325,6 +341,17 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       </div>
 
       <div className="chat-toolbar">
+        <label
+          style={{ marginRight: '10px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+        >
+          <input
+            type="checkbox"
+            checked={showAvatar}
+            onChange={(e) => setShowAvatar(e.target.checked)}
+            style={{ marginRight: '5px' }}
+          />
+          显示头像
+        </label>
         <button className="toolbar-btn" onClick={onRefresh}>
           🔄 刷新聊天记录
         </button>

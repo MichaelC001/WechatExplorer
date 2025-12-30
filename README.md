@@ -5,10 +5,9 @@ MAC系统 获取微信聊天记录 AI一键生成群聊总结
 
 ## 📸 预览
 
-<div style="display: flex; justify-content: space-between;">
-  <img src="./public/WX20251215-155324.png" alt="预览图1" width="48%" />
-  <img src="./public/WX20251215-155524.png" alt="预览图2" width="48%" />
-</div>
+  <img src="./public/example1.png" alt="预览图1" />
+  <img src="./public/example2.png" alt="预览图2" />
+  <img src="./public/example3.png" alt="预览图3" />
 
 ## [点击这里下载](https://github.com/Wxw-Gu/WechatExplorer/releases/tag/v1.0.0)
 
@@ -36,10 +35,6 @@ MAC系统 获取微信聊天记录 AI一键生成群聊总结
 ## ⚠️ 免责声明
 
 本项目仅供学习和研究使用。请勿用于非法用途。开发者不对使用本项目造成的任何后果负责。请遵守相关法律法规和微信使用协议。
-
-## 📄 许可证
-
-[MIT](./LICENSE) License
 
 ## 🔗 参考
 
