@@ -6,6 +6,17 @@ import { WechatDb, Contact, WechatMessage } from './wechat-db'
 
 let wechatDb: WechatDb | null = null
 
+const MSG_TYPE_DICT: Record<number, string> = {
+  1: '普通文本',
+  3: '图片',
+  34: '语音',
+  43: '视频',
+  47: '表情包',
+  48: '位置',
+  49: '分享消息',
+  10000: '系统消息'
+}
+
 function createWindow(): void {
   // 创建浏览器窗口
   const mainWindow = new BrowserWindow({
@@ -117,17 +128,6 @@ app.whenReady().then(() => {
     const groupMembers = wechatDb.getAllGroupMembers()
 
     return rawMessages.map((msg: WechatMessage) => {
-      const typeDict: Record<number, string> = {
-        1: '普通文本',
-        3: '图片',
-        34: '语音',
-        43: '视频',
-        47: '表情包',
-        48: '位置',
-        49: '分享消息',
-        10000: '系统消息'
-      }
-
       const msgType = parseInt(msg.messageType)
       const createTime = parseInt(msg.msgCreateTime)
       const date = new Date(createTime * 1000)
@@ -162,7 +162,7 @@ app.whenReady().then(() => {
       return {
         id: msg.mesLocalID || Math.random().toString(),
         from: msg.mesDes === '1' ? 'user' : 'assistant', // 1 通常是接收到的，0 是发送的？需要验证。Swift 说：[1: "user", 0: "assistant"]
-        type: typeDict[msgType] || msg.messageType,
+        type: MSG_TYPE_DICT[msgType] || msg.messageType,
         datetime: date.toLocaleString('zh-CN', { hour12: false }),
         content: content,
         isSender: msg.mesDes === '0',

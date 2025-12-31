@@ -28,6 +28,7 @@ const systemPrompt = `你是一个中文的群聊总结的助手，你可以为�
 2. 使用中文冒号
 3. 无需大标题
 4. 开始给出本群讨论风格的整体评价，例如活跃、太水、太黄、太暴力、话题不集中、无聊诸如此类
+5. 每个话题详细写出参与者
 
 最后总结下今日最活跃的前五个发言者`
 
@@ -149,16 +150,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       alert('当前没有消息可供总结')
       return
     }
-    const filteredMessages = messages.filter((msg) => {
-      delete msg.img
-      // @ts-ignore 暂时去除
-      delete msg.from
-      // @ts-ignore 暂时去除
-      delete msg.id
-      // @ts-ignore 暂时去除
-      delete msg.isSender
-      return !'分享消息,图片,表情包,视频'.split(',').includes(msg.type)
-    })
+    const filteredMessages = messages
+      .filter((msg) => !'分享消息,图片,表情包,视频'.split(',').includes(msg.type))
+      .map((msg) => {
+        const { img, id, isSender, ...rest } = msg
+        return rest
+      })
     const recentMessages = filteredMessages
       .map((msg) => {
         return `${msg.datetime} ${msg.from}: ${msg.content}`

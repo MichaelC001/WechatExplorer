@@ -62,7 +62,6 @@ export class WechatDb {
   }
 
   private connectDb(dbPath: string): Database | null {
-    // 1. 路径预检查
     const targetPath = path.resolve(dbPath)
     if (!fs.existsSync(targetPath)) {
       console.error(`❌ 错误：数据库文件不存在于路径：${targetPath}`)
@@ -70,45 +69,26 @@ export class WechatDb {
     }
 
     try {
-      // console.log(`🔌 正在尝试连接至：${path.basename(targetPath)}`)
-      // console.log('路径是', targetPath)
-      // 2. 初始化数据库句柄
-      // 关键：使用 better-sqlite3-multiple-ciphers 的构造函数
-      // verbose 选项有助于调试 Pragma 的执行情况
       const db = new DatabaseConstructor(targetPath, {
         // verbose: console.log
       })
 
-      // 此时 db 实例已创建，但因为未提供密钥，任何数据读取都会失败。
-      // 必须立即配置加密参数。
-
-      // 3. 配置加密方案 (Cipher Scheme)
-      // 必须显式切换到 'sqlcipher'，因为该库默认可能使用 'chacha20'
+      // 配置加密方案 (Cipher Scheme)
       db.pragma("cipher='sqlcipher'")
-
-      // 4. 配置页大小 (Page Size)
-      // macOS 版 WeChat 使用 1024 字节。这必须在设置密钥前（或紧随其后）生效。
       db.pragma('cipher_page_size = 1024')
-
-      // 5. 配置兼容性与算法细节
-      // 显式指定 SQLCipher 3 的行为
       db.pragma('legacy=3')
       db.pragma('kdf_iter = 64000')
       db.pragma('cipher_hmac_algorithm = HMAC_SHA1')
       db.pragma('cipher_kdf_algorithm = PBKDF2_HMAC_SHA1')
 
-      // 6. 应用密钥
-      // 使用正确的 hex 语法: key = "x'HEXSTRING'"
       const processedKey = this.processRawKey(this.rawKey)
       // console.log(`🔑 应用密钥 (前6位): ${processedKey.substring(0, 6)}...`)
 
       db.pragma(`key = "x'${processedKey}'"`)
 
-      // 7. 验证连接
-      // 如果参数错误，这里将抛出 "file is not a database" 或 "HMAC check failed"
+      // 验证连接
       db.prepare('SELECT count(*) as count FROM sqlite_master').get()
 
-      // console.log(`✅ 连接成功！当前数据库 ${path.basename(targetPath)} 包含 ${row.count} 张表。`)
       return db
     } catch (error) {
       console.error(`❌ 连接失败:`, error)
@@ -241,7 +221,7 @@ export class WechatDb {
   public getGroupMember(wxid: string): GroupMemberInfo | null {
     if (!this.correctUserId) return null
 
-    // 1. 检查缓存
+    // 检查缓存
     if (this.groupMemberCache.has(wxid)) {
       return this.groupMemberCache.get(wxid) || null
     }
@@ -261,7 +241,7 @@ export class WechatDb {
 
     db.close()
 
-    // 2. 写入缓存
+    // 写入缓存
     this.groupMemberCache.set(wxid, result || null)
 
     return result || null
