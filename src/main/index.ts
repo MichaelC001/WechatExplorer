@@ -161,14 +161,12 @@ app.whenReady().then(() => {
 
       return {
         id: msg.mesLocalID || Math.random().toString(),
-        from: msg.mesDes === '1' ? 'user' : 'assistant', // 1 通常是接收到的，0 是发送的？需要验证。Swift 说：[1: "user", 0: "assistant"]
+        from: msg.mesDes === 1 ? 'user' : 'assistant', // 1 通常是接收到的，0 是发送的？需要验证。Swift 说：[1: "user", 0: "assistant"]
         type: MSG_TYPE_DICT[msgType] || msg.messageType,
         datetime: date.toLocaleString('zh-CN', { hour12: false }),
         content: content,
-        isSender: msg.mesDes === '0',
         img: img,
         name: name
-        // 实际上让我们坚持我们观察到的：1=用户(其他人), 0=助手(我)
       }
     })
   })

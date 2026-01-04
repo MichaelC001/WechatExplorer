@@ -13,7 +13,7 @@ export interface UserContact {
 
 export interface WechatMessage {
   mesLocalID: string
-  mesDes: string
+  mesDes: number
   messageType: string
   msgCreateTime: string
   msgContent: string
