@@ -39,6 +39,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   onRefresh,
   onRefreshData
 }) => {
+  const isGroupChat = contact?.type === 'group' || contact?.m_nsUsrName?.endsWith('@chatroom')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const imageContainerRef = useRef<HTMLDivElement>(null)
   const [generatedImage, setGeneratedImage] = useState<string | null>(null)
@@ -115,11 +116,16 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           // 昨天
           const startOfYesterday = startOfDay - 86400000
           return parsed >= startOfYesterday && parsed < startOfDay
-        } else {
+        } else if (days === 7) {
           // 过去 7 天
           const startOf7DaysAgo = startOfDay - 7 * 86400000
           return parsed >= startOf7DaysAgo
+        } else if (days === 30) {
+          // 过去 30 天
+          const startOf30DaysAgo = startOfDay - 30 * 86400000
+          return parsed >= startOf30DaysAgo
         }
+        return true
       })
     }
 
@@ -127,7 +133,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     const csvContent = [
       headers.join(','),
       ...filtered.map((m) => {
-        const content = m.content.replace(/"/g, '""').replace(/\n/g, ' ')
+        let prefix = ''
+        if (isGroupChat) {
+          prefix = m.name ? `${m.name}: ` : ''
+        } else {
+          const name = m.from === 'user' ? contact?.m_nsNickName || '未知' : '我'
+          prefix = `${name}: `
+        }
+        const fullContent = `${prefix}${m.content}`
+        const content = fullContent.replace(/"/g, '""').replace(/\n/g, ' ')
         return `"${m.from}","${m.type}","${m.datetime}","${content}"`
       })
     ].join('\n')
@@ -300,7 +314,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                       display: !showAvatar ? 'flex' : 'block'
                     }}
                   >
-                    {msg.name && <div style={{ fontSize: 18 }}>{msg.name}: </div>}
+                    {(msg.name || contact.m_nsNickName) && (
+                      <div style={{ display: 'flex', fontSize: 18 }}>
+                        {isGroupChat ? msg.name : msg.from === 'user' ? contact.m_nsNickName : '我'}
+                        <span>{isGroupChat ? (msg.name ? ':' : '') : ':'} </span>
+                      </div>
+                    )}
                     <div
                       style={{
                         fontSize: 18,
@@ -366,6 +385,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         </button>
         <button className="toolbar-btn" onClick={() => handleExport(7)}>
           📅 导出近7天
+        </button>
+        <button className="toolbar-btn" onClick={() => handleExport(30)}>
+          📅 导出近30天
         </button>
         <button className="toolbar-btn" onClick={() => setShowSettingsModal(true)}>
           🤖 AI总结群聊
