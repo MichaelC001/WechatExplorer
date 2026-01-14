@@ -9,7 +9,7 @@ MAC系统 获取微信聊天记录 AI一键生成群聊总结
   <img src="./public/example2.png" alt="预览图2" />
   <img src="./public/example3.png" alt="预览图3" />
 
-## [点击这里下载](https://github.com/Wxw-Gu/WechatExplorer/releases/tag/v1.0.0)
+## [点击这里下载](https://github.com/Wxw-Gu/WechatExplorer/releases)
 
 ## 📦 安装说明
 

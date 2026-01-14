@@ -1,6 +1,6 @@
 {
   "name": "wechatexplorer",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "mac 版本获取微信聊天记录, AI群聊总结助手",
   "keywords": [
     "wechat",
@@ -23,7 +23,9 @@
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
-    "build:mac": "electron-vite build && electron-builder --mac",
+    "build:mac:x64": "electron-vite build && electron-builder --mac --x64",
+    "build:mac:arm64": "electron-vite build && electron-builder --mac --arm64",
+    "release:mac": "electron-vite build && electron-builder --mac --x64 --arm64 --publish always",
     "build:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
@@ -61,5 +63,14 @@
       "electron",
       "esbuild"
     ]
+  },
+  "build": {
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    }
   }
 }
