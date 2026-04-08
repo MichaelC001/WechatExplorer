@@ -31,9 +31,10 @@ MAC系统 获取微信聊天记录 AI一键生成群聊总结
 
 ### 使用前置要求
 
-- 微信>=4.0 无法使用
-- 微信<=4.0 需要获取自己微信本地数据库的密码， 获取方式参考： [Mac 导出微信聊天记录](https://blog.vcvit.me/2024/08/02/mac-export-wechat-chat-records/)
-- 如果无法获取本地数据库密码 则无法使用当前项目
+- **微信版本**: 推荐使用微信 **4.0 以下**版本（4.0以上版本不支持数据库解密）
+  - 微信 <= 4.0: 可正常使用，获取数据库密码方式参考：[Mac 导出微信聊天记录](https://blog.vcvit.me/2024/08/02/mac-export-wechat-chat-records/)
+  - 微信 >= 4.0: 如需使用，推荐使用 [WeFlow](https://github.com/hicccc77/WeFlow)
+- 如无法获取本地数据库密码，则无法使用当前项目
 - Node.js (推荐 v16+)
 - pnpm@7
 - 解密后的微信数据库文件 (`.db`) 和对应的密钥
@@ -46,3 +47,4 @@ MAC系统 获取微信聊天记录 AI一键生成群聊总结
 ## 🔗 参考
 
 - [WechatMessageExplorer](https://github.com/svcvit/WechatMessageExplorer)
+- [WeFlow](https://github.com/hicccc77/WeFlow)
