@@ -52,11 +52,16 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   // AI Settings
   const [showSettingsModal, setShowSettingsModal] = useState(false)
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('deepseek_api_key') || '')
-  const [model, setModel] = useState('deepseek-chat')
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('ai_api_key') || '')
+  const [baseURL, setBaseURL] = useState(
+    () => localStorage.getItem('ai_base_url') || 'https://api.deepseek.com'
+  )
+  const [model, setModel] = useState(() => localStorage.getItem('ai_model') || 'deepseek-chat')
 
   const handleSaveSettings = (): void => {
-    localStorage.setItem('deepseek_api_key', apiKey)
+    localStorage.setItem('ai_api_key', apiKey)
+    localStorage.setItem('ai_base_url', baseURL)
+    localStorage.setItem('ai_model', model)
     setShowSettingsModal(false)
     AIChat()
   }
@@ -186,7 +191,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           { role: 'system', content: systemPrompt },
           { role: 'user', content: prompt }
         ],
-        { apiKey, model }
+        { apiKey, model, baseURL }
       )
 
       if (result.success && result.data) {
@@ -482,14 +487,29 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h3>AI 设置</h3>
             <div className="form-group" style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'block', marginBottom: '5px' }}>模型:</label>
+              <label style={{ display: 'block', marginBottom: '5px' }}>模型服务:</label>
               <select
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
                 style={{ width: '100%', padding: '8px' }}
               >
                 <option value="deepseek-chat">DeepSeek Chat</option>
+                <option value="gpt-4o">GPT-4o</option>
+                <option value="gpt-4o-mini">GPT-4o Mini</option>
+                <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                <option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet</option>
+                <option value="moonshot-v1-8k">Moonshot V1</option>
               </select>
+            </div>
+            <div className="form-group" style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', marginBottom: '5px' }}>Base URL:</label>
+              <input
+                type="text"
+                value={baseURL}
+                onChange={(e) => setBaseURL(e.target.value)}
+                placeholder="https://api.deepseek.com"
+                style={{ width: '95%', padding: '8px' }}
+              />
             </div>
             <div className="form-group" style={{ marginBottom: '20px' }}>
               <label style={{ display: 'block', marginBottom: '5px' }}>API Key:</label>
@@ -497,7 +517,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Enter your DeepSeek API Key"
+                placeholder="Enter your API Key"
                 style={{ width: '95%', padding: '8px' }}
               />
             </div>

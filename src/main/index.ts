@@ -181,22 +181,24 @@ app.whenReady().then(() => {
     async (
       _,
       messages: { role: string; content: string }[],
-      options?: { apiKey?: string; model?: string }
+      options?: { apiKey?: string; model?: string; baseURL?: string }
     ) => {
       // @ts-ignore: vite env
       const apiKey = options?.apiKey || import.meta.env.VITE_DEEPSEEK_API_KEY
-      const model = options?.model || 'deepseek-chat'
+      const model = options?.model || import.meta.env.VITE_AI_MODEL || 'deepseek-chat'
+      const baseURL =
+        options?.baseURL || import.meta.env.VITE_AI_BASE_URL || 'https://api.deepseek.com'
 
       if (!apiKey) {
-        return { success: false, error: '未配置 DeepSeek API Key' }
+        return { success: false, error: '未配置 API Key' }
       }
 
       // 动态导入以避免如果未安装或初始类型缺失的问题
       const { OpenAI } = await import('openai')
 
       const openai = new OpenAI({
-        baseURL: 'https://api.deepseek.com',
-        apiKey: apiKey
+        baseURL,
+        apiKey
       })
       try {
         const completion = await openai.chat.completions.create({
@@ -206,7 +208,7 @@ app.whenReady().then(() => {
         })
         return { success: true, data: completion.choices[0].message.content }
       } catch (error: unknown) {
-        console.error('DeepSeek API Error:', error)
+        console.error('AI API Error:', error)
         const errorMessage = error instanceof Error ? error.message : 'Unknown error'
         return { success: false, error: errorMessage }
       }
