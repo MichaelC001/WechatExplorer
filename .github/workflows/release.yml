@@ -10,11 +10,7 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        include:
-          - platform: macos-arm64
-            arch: arm64
-          - platform: macos-x64
-            arch: x64
+        platform: [x64, arm64]
 
     steps:
       - name: Checkout
@@ -27,9 +23,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: '9'
+        run: npm install -g pnpm@9
 
       - name: Install Dependencies
         run: pnpm install
@@ -38,25 +32,26 @@ jobs:
         run: pnpm build
 
       - name: Build DMG
-        run: pnpm run build:mac -- ${{ matrix.platform }}
+        run: pnpm run build:mac:${{ matrix.platform }}
 
-      - name: Upload Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
         with:
-          upload_url: ${{ env.UPLOAD_URL }}
-          asset_path: out/${{ matrix.platform }}/WechatExplorer-${{ env.VERSION }}-${{ matrix.platform }}.dmg
-          asset_name: WechatExplorer-${{ env.VERSION }}-${{ matrix.platform }}.dmg
-          asset_content_type: application/x-apple-diskimage
+          name: dmg-${{ matrix.platform }}
+          path: out/mac-*/WechatExplorer-*.dmg
 
   release:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dmg-*
+          path: artifacts
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          files: artifacts/**/*
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
