@@ -23,7 +23,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install pnpm
-        run: npm install -g pnpm@9
+        run: npm install -g pnpm@7
 
       - name: Install Dependencies
         run: pnpm install
