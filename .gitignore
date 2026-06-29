@@ -1,6 +1,7 @@
 node_modules
 dist
 out
+docs/
 .env
 .DS_Store
 .eslintcache

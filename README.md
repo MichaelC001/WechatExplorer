@@ -33,12 +33,37 @@ MAC系统 获取微信聊天记录 AI一键生成群聊总结
 
 - **微信版本**: 推荐使用微信 **4.0 以下**版本（4.0以上版本不支持数据库解密）
   - 微信 <= 4.0: 可正常使用，获取数据库密码方式参考：[Mac 导出微信聊天记录](https://blog.vcvit.me/2024/08/02/mac-export-wechat-chat-records/)
-  - 微信 >= 4.0: 如需使用，推荐使用 [WeFlow](https://github.com/hicccc77/WeFlow)
+  - 微信 >= 4.0: 可正常使用 (正在迭代) ，推荐使用 [WeFlow](https://github.com/hicccc77/WeFlow) [Chatlog](https://github.com/sjzar/chatlog)
 - 如无法获取本地数据库密码，则无法使用当前项目
 - Node.js (推荐 v16+)
 - pnpm@7
 - 解密后的微信数据库文件 (`.db`) 和对应的密钥
 - AI API Key（支持 OpenAI 兼容 API，可选 DeepSeek/GPT/Claude/Moonshot 等）
+
+### 环境变量配置 (.env)
+
+可选配置项，可在 `.env` 文件中设置：
+
+| 变量名 | 说明 | 示例 |
+|--------|------|------|
+| `VITE_DB_KEY` | 微信数据库密钥 (32字节hex) | `YOUR_DB_KEY_HERE` |
+| `VITE_IMAGE_XOR_KEY` | 图片解密 XOR 密钥 (hex格式) | `0x40` |
+| `VITE_IMAGE_AES_KEY` | 图片解密 AES 密钥 (16字符) | `YOUR_AES_KEY_HERE` |
+| `VITE_DEEPSEEK_API_KEY` | DeepSeek API Key | `sk-xxx` |
+| `VITE_AI_BASE_URL` | AI API 地址 | `https://api.deepseek.com` |
+| `VITE_AI_MODEL` | AI 模型 | `deepseek-chat` |
+| `VITE_FILTER_MSG_TYPES` | 过滤的消息类型 | `分享消息,图片,表情包,视频` |
+
+#### 图片解密密钥说明
+
+微信 4.0+ 的图片以 `.dat` 文件存储，需要密钥解密：
+
+- **XOR Key**: 单字节 hex 值（如 `0x40`），用于简单的字节异或解密
+- **AES Key**: 16字符字符串，用于 AES-128-ECB 解密
+
+这两个密钥可以通过以下方式获取：
+1. 从 WeFlow/Chatlog 设置中导出
+2. 使用内存扫描工具从微信进程中自动提取（待实现）
 
 ## ⚠️ 免责声明
 
@@ -47,4 +72,5 @@ MAC系统 获取微信聊天记录 AI一键生成群聊总结
 ## 🔗 参考
 
 - [WechatMessageExplorer](https://github.com/svcvit/WechatMessageExplorer)
-- [WeFlow](https://github.com/hicccc77/WeFlow)
+- [WechatExplorer](https://github.com/hicccc77/WechatExplorer)
+- [chatlog](https://github.com/sjzar/chatlog)

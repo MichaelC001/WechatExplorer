@@ -1,0 +1,222 @@
+import { ParsedContent } from '../../../shared/types'
+import { useEffect, useState } from 'react'
+import type { JSX, MouseEvent } from 'react'
+
+const stickerDataUrlCache = new Map<string, string>()
+
+interface RichMessageBubbleProps {
+  contentData: ParsedContent
+}
+
+export function RichMessageBubble({ contentData }: RichMessageBubbleProps): JSX.Element {
+  switch (contentData.type) {
+    case 'location':
+      return <LocationBubble data={contentData} />
+    case 'card':
+      return <CardBubble data={contentData} />
+    case 'share':
+      return <ShareBubble data={contentData} />
+    case 'voip':
+      return <VoipBubble data={contentData} />
+    case 'sticker':
+      return <StickerBubble data={contentData} />
+    case 'quote':
+      return <QuoteBubble data={contentData} />
+    case 'unknown':
+      return (
+        <div className="message-text">{(contentData as { raw?: string }).raw || '[未知消息]'}</div>
+      )
+    default:
+      return <div className="message-text">[不支持的消息类型]</div>
+  }
+}
+
+function LocationBubble({
+  data
+}: {
+  data: Extract<ParsedContent, { type: 'location' }>
+}): JSX.Element {
+  const { poiname, label, lat, lng } = data
+  const locationText = poiname || label || '位置'
+  const hasCoords = lat !== 0 || lng !== 0
+
+  const handleClick = (): void => {
+    if (hasCoords) {
+      const url = `https://maps.apple.com/?q=${encodeURIComponent(locationText)}&ll=${lat},${lng}`
+      window.open(url, '_blank')
+    }
+  }
+
+  return (
+    <div className="location-message" onClick={hasCoords ? handleClick : undefined}>
+      <div className="location-icon">📍</div>
+      <div className="location-info">
+        <div className="location-name">{locationText}</div>
+        {label && poiname && label !== poiname && <div className="location-label">{label}</div>}
+        {hasCoords && (
+          <div className="location-coords">
+            {lat.toFixed(6)}, {lng.toFixed(6)}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function CardBubble({ data }: { data: Extract<ParsedContent, { type: 'card' }> }): JSX.Element {
+  const { username, nickname } = data
+
+  const handleCopy = (e: MouseEvent): void => {
+    e.stopPropagation()
+    navigator.clipboard.writeText(username)
+  }
+
+  return (
+    <div className="card-message">
+      <div className="card-avatar">{(nickname || username).charAt(0).toUpperCase()}</div>
+      <div className="card-info">
+        <div className="card-nickname">{nickname || '未知'}</div>
+        <div className="card-username" onClick={handleCopy} title="点击复制">
+          {username}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ShareBubble({ data }: { data: Extract<ParsedContent, { type: 'share' }> }): JSX.Element {
+  const { title, des, url, appname } = data
+
+  const handleClick = (): void => {
+    if (url) {
+      window.open(url, '_blank')
+    }
+  }
+
+  const urlHost = getUrlHost(url)
+
+  return (
+    <div className="share-message" onClick={handleClick}>
+      {appname && <div className="share-appname">{appname}</div>}
+      <div className="share-title">{title || '链接'}</div>
+      {des && <div className="share-desc">{des}</div>}
+      {urlHost && <div className="share-url">{urlHost}</div>}
+    </div>
+  )
+}
+
+function VoipBubble({ data }: { data: Extract<ParsedContent, { type: 'voip' }> }): JSX.Element {
+  const { status, roomType, duration } = data
+  const isVideo = roomType === 1
+
+  const formatDuration = (seconds: number | undefined): string => {
+    if (!seconds) return ''
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    if (mins > 0) {
+      return `${mins}分${secs}秒`
+    }
+    return `${secs}秒`
+  }
+
+  return (
+    <div className="voip-message">
+      <span className="voip-icon">{isVideo ? '📹' : '📞'}</span>
+      <span className="voip-status">
+        {status}
+        {duration ? ` ${formatDuration(duration)}` : ''}
+      </span>
+    </div>
+  )
+}
+
+function StickerBubble({
+  data
+}: {
+  data: Extract<ParsedContent, { type: 'sticker' }>
+}): JSX.Element {
+  const { md5, url, thumbUrl } = data
+  const sourceUrl = url || thumbUrl || ''
+  const cacheKey = md5 || sourceUrl
+  const [displayUrl, setDisplayUrl] = useState(() =>
+    cacheKey ? stickerDataUrlCache.get(cacheKey) || '' : ''
+  )
+  const [loading, setLoading] = useState(Boolean(sourceUrl || md5) && !displayUrl)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    if (!cacheKey || displayUrl || error) return
+
+    let cancelled = false
+    window.api
+      .getSticker(sourceUrl, md5)
+      .then((result) => {
+        if (cancelled) return
+        if (result.success && result.data) {
+          stickerDataUrlCache.set(cacheKey, result.data)
+          setDisplayUrl(result.data)
+          setError(false)
+        } else {
+          setError(true)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setError(true)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [cacheKey, displayUrl, error, md5, sourceUrl])
+
+  if (displayUrl) {
+    return (
+      <div className="sticker-message">
+        <img src={displayUrl} alt="表情包" className="sticker-image" referrerPolicy="no-referrer" />
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="sticker-message">
+        <div className="sticker-placeholder">表情包加载中...</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="sticker-message">
+      <div className="sticker-placeholder">{error ? '表情包未缓存' : '表情包'}</div>
+      {md5 && <div className="sticker-md5">MD5: {md5}</div>}
+    </div>
+  )
+}
+
+function QuoteBubble({ data }: { data: Extract<ParsedContent, { type: 'quote' }> }): JSX.Element {
+  const quotedText = data.quotedContent || data.content || '[引用消息]'
+  const replyText = data.content || data.title || ''
+  const quotedSender = data.quotedSender || data.sender || ''
+
+  return (
+    <div className="quote-message">
+      <div className="quoted-message">
+        {quotedSender && <span className="quoted-sender">{quotedSender}</span>}
+        <span className="quoted-text">{quotedText}</span>
+      </div>
+      {replyText && <div className="quote-reply">{replyText}</div>}
+    </div>
+  )
+}
+
+function getUrlHost(url?: string): string {
+  if (!url) return ''
+  try {
+    return new URL(url).hostname
+  } catch {
+    return url
+  }
+}

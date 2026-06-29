@@ -23,12 +23,14 @@ function App(): React.ReactElement {
     const keyToUse = keyInput || dbKey
     if (!keyToUse) return
     try {
-      const success = await window.api.initDb(keyToUse)
+      const result = await window.api.initDb(keyToUse)
+      const success = typeof result === 'boolean' ? result : result.success
       if (success) {
         setIsAuthenticated(true)
         loadContacts()
       } else {
-        alert('Failed to open database. Check your key.')
+        const error = typeof result === 'boolean' ? '' : result.error
+        alert(`Failed to open database.${error ? `\n\n${error}` : '\nCheck your key.'}`)
       }
     } catch (error) {
       console.error(error)

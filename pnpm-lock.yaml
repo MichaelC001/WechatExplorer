@@ -10,6 +10,7 @@ specifiers:
   '@electron-toolkit/preload': ^3.0.2
   '@electron-toolkit/tsconfig': ^2.0.0
   '@electron-toolkit/utils': ^4.0.0
+  '@rollup/rollup-darwin-arm64': ^4.62.2
   '@types/fs-extra': ^11.0.4
   '@types/node': ^22.19.1
   '@types/react': ^19.2.7
@@ -24,11 +25,14 @@ specifiers:
   eslint-plugin-react-hooks: ^7.0.1
   eslint-plugin-react-refresh: ^0.4.24
   fs-extra: ^11.3.2
+  fzstd: ^0.1.1
   html-to-image: ^1.11.13
+  koffi: ^2.9.0
   openai: ^6.10.0
   prettier: ^3.7.4
   react: ^19.2.1
   react-dom: ^19.2.1
+  silk-wasm: ^3.7.1
   typescript: ^5.9.3
   vite: ^7.2.6
 
@@ -37,13 +41,17 @@ dependencies:
   '@electron-toolkit/utils': 4.0.0_electron@39.2.6
   better-sqlite3-multiple-ciphers: 12.5.0
   fs-extra: 11.3.2
+  fzstd: 0.1.1
   html-to-image: 1.11.13
+  koffi: 2.16.2
   openai: 6.10.0
+  silk-wasm: 3.7.1
 
 devDependencies:
   '@electron-toolkit/eslint-config-prettier': 3.0.0_fiitszekoa4sqtbwyewxi6kyy4
   '@electron-toolkit/eslint-config-ts': 3.1.0_ohw7ybem3stexzc2ktgcr2xgzi
   '@electron-toolkit/tsconfig': 2.0.0_@types+node@22.19.2
+  '@rollup/rollup-darwin-arm64': 4.62.2
   '@types/fs-extra': 11.0.4
   '@types/node': 22.19.2
   '@types/react': 19.2.7
@@ -853,6 +861,12 @@ packages:
     os: [darwin]
     dev: true
     optional: true
+
+  /@rollup/rollup-darwin-arm64/4.62.2:
+    resolution: {integrity: sha512-v39RCCvj4He82I9sFmk+M1VZ0PLM9sfsLVikjfx2hYBNALhrrOR2D3JjQA6AhlaSOgcR+RzrKY7e1+bT6SUO/A==}
+    cpu: [arm64]
+    os: [darwin]
+    dev: true
 
   /@rollup/rollup-darwin-x64/4.53.3:
     resolution: {integrity: sha512-DZ8N4CSNfl965CmPktJ8oBnfYr3F8dTTNBQkRlffnUarJ2ohudQD17sZBa097J8xhQ26AwhHJ5mvUyQW8ddTsQ==}
@@ -2717,6 +2731,10 @@ packages:
     resolution: {integrity: sha512-xckBUXyTIqT97tq2x2AMb+g163b5JFysYk0x4qxNFwbfQkmNZoiRHb6sPzI9/QV33WeuvVYBUIiD4NzNIyqaRQ==}
     dev: true
 
+  /fzstd/0.1.1:
+    resolution: {integrity: sha512-dkuVSOKKwh3eas5VkJy1AW1vFpet8TA/fGmVA5krThl8YcOVE/8ZIoEA1+U1vEn5ckxxhLirSdY837azmbaNHA==}
+    dev: false
+
   /generator-function/2.0.1:
     resolution: {integrity: sha512-SFdFmIJi+ybC0vjlHN0ZGVGHc3lgE0DxPAT0djjVg+kjOnSqclqmj0KQ7ykTOLP6YxoqOvuAODGdcHJn+43q3g==}
     engines: {node: '>= 0.4'}
@@ -3386,6 +3404,10 @@ packages:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
     dependencies:
       json-buffer: 3.0.1
+
+  /koffi/2.16.2:
+    resolution: {integrity: sha512-owU0MRwv6xkrVqCd+33uw6BaYppkTRXbO/rVdJNI2dvZG0gzyRhYwW25eWtc5pauwK8TGh3AbkFONSezdykfSA==}
+    dev: false
 
   /lazy-val/1.0.5:
     resolution: {integrity: sha512-0/BnGCCfyUMkBpeDgWihanIAF9JmZhHBgUhEqzvf+adhNGLoP6TaiI5oF8oyb3I45P+PcnrqihSf01M0l0G5+Q==}
@@ -4334,6 +4356,11 @@ packages:
     resolution: {integrity: sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw==}
     engines: {node: '>=14'}
     dev: true
+
+  /silk-wasm/3.7.1:
+    resolution: {integrity: sha512-mXPwLRtZxrYV3TZx41jMAeKc80wvmyrcXIcs8HctFxK15Ahz2OJQENYhNgEPeCEOdI6Mbx1NxQsqxzwc3DKerw==}
+    engines: {node: '>=16.11.0'}
+    dev: false
 
   /simple-concat/1.0.1:
     resolution: {integrity: sha512-cSFtAPtRhljv69IK0hTVZQ+OfE9nePi/rtJmw5UjHeVyVroEqJXP1sFztKUy1qU+xvz3u/sfYJLa947b7nAN2Q==}

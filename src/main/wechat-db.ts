@@ -3,12 +3,14 @@ import fs from 'fs-extra'
 import path from 'path'
 import crypto from 'crypto'
 import os from 'os'
+import { Wcdb4Client } from './wcdb4-client'
 
 type Database = import('better-sqlite3-multiple-ciphers').Database
 
 export interface UserContact {
   m_nsUsrName: string
   nickname: string
+  avatar?: string
 }
 
 export interface WechatMessage {
@@ -26,6 +28,7 @@ export interface Contact {
   m_nsNickName: string
   md5: string
   type: 'user' | 'group'
+  avatar?: string
 }
 
 export interface GroupMemberInfo {
@@ -44,10 +47,18 @@ export class WechatDb {
   private correctUserId: string | null = null
   private chatDb: { name: string; db_number: string }[] | null = null
   private groupMemberCache = new Map<string, GroupMemberInfo | null>()
+  private wcdb4Client: Wcdb4Client | null = null
+  private chatMd5ToUsername = new Map<string, string>()
+  private wechat4OpenError: string | null = null
 
   constructor(rawKey: string) {
     this.rawKey = rawKey
     console.log(`Initializing WechatDb with key: ${rawKey}`)
+
+    if (this.tryOpenWechat4()) {
+      this.chatDb = this.getChatDbNumber()
+      return
+    }
 
     if (!fs.existsSync(WechatDb.WECHAT_DIR)) {
       throw new Error(`WeChat directory not found at ${WechatDb.WECHAT_DIR}`)
@@ -57,7 +68,24 @@ export class WechatDb {
       console.log('User found, getting chat DB number')
       this.chatDb = this.getChatDbNumber()
     } else {
-      throw new Error('No valid user found or invalid key')
+      throw new Error(
+        `No valid user found or invalid key${this.wechat4OpenError ? `; WeChat 4.0 error: ${this.wechat4OpenError}` : ''}`
+      )
+    }
+  }
+
+  private tryOpenWechat4(): boolean {
+    try {
+      const client = new Wcdb4Client(this.rawKey)
+      client.open()
+      this.wcdb4Client = client
+      console.log('Opened WeChat 4.0 database with WechatExplorer WCDB native adapter')
+      return true
+    } catch (error) {
+      this.wechat4OpenError = error instanceof Error ? error.message : String(error)
+      console.warn('WeChat 4.0 open failed, fallback to 3.0 SQLCipher mode:', error)
+      this.wcdb4Client = null
+      return false
     }
   }
 
@@ -136,6 +164,17 @@ export class WechatDb {
   }
 
   private getChatDbNumber(): { name: string; db_number: string }[] {
+    if (this.wcdb4Client) {
+      const chatDb = this.wcdb4Client.getChatTables()
+      this.chatMd5ToUsername.clear()
+      for (const table of chatDb) {
+        if (table.name.startsWith('Chat_')) {
+          this.chatMd5ToUsername.set(table.name.substring(5), table.db_number)
+        }
+      }
+      return chatDb
+    }
+
     const chatDb: { name: string; db_number: string }[] = []
     if (!this.correctUserId) return []
 
@@ -158,6 +197,24 @@ export class WechatDb {
   }
 
   public getUserList(nicknameFilter?: string): UserContact[] {
+    if (this.wcdb4Client) {
+      const keyword = (nicknameFilter || '').trim().toLowerCase()
+      return this.wcdb4Client
+        .getSessions()
+        .map((session) => ({
+          m_nsUsrName: session.username,
+          nickname: session.nickname || session.username,
+          avatar: session.avatar
+        }))
+        .filter((contact) => {
+          if (!keyword) return true
+          return (
+            contact.m_nsUsrName.toLowerCase().includes(keyword) ||
+            contact.nickname.toLowerCase().includes(keyword)
+          )
+        })
+    }
+
     if (!this.correctUserId) return []
     const dbPath = path.join(WechatDb.WECHAT_DIR, this.correctUserId, 'Contact/wccontact_new2.db')
     const db = this.connectDb(dbPath)
@@ -174,6 +231,16 @@ export class WechatDb {
   }
 
   public getAllGroupContacts(): Record<string, string> {
+    if (this.wcdb4Client) {
+      const groupContacts: Record<string, string> = {}
+      for (const session of this.wcdb4Client.getSessions()) {
+        if (session.username.endsWith('@chatroom')) {
+          groupContacts[this.md5(session.username)] = session.nickname || session.username
+        }
+      }
+      return groupContacts
+    }
+
     if (!this.correctUserId) return {}
     const dbPath = path.join(WechatDb.WECHAT_DIR, this.correctUserId, 'Group/group_new.db')
     const db = this.connectDb(dbPath)
@@ -196,6 +263,19 @@ export class WechatDb {
   }
 
   public getAllGroupMembers(): Record<string, string> {
+    if (this.wcdb4Client) {
+      const members: Record<string, string> = {}
+      for (const session of this.wcdb4Client.getSessions()) {
+        if (!session.username.endsWith('@chatroom')) continue
+        for (const member of this.wcdb4Client.getGroupMembers(session.username)) {
+          if (member.m_nsUsrName) {
+            members[member.m_nsUsrName] = member.nickname || member.m_nsUsrName
+          }
+        }
+      }
+      return members
+    }
+
     if (!this.correctUserId) return {}
     const dbPath = path.join(WechatDb.WECHAT_DIR, this.correctUserId, 'Group/group_new.db')
     const db = this.connectDb(dbPath)
@@ -218,7 +298,32 @@ export class WechatDb {
     return groupMembers
   }
 
-  public getGroupMember(wxid: string): GroupMemberInfo | null {
+  public getGroupMembersForChat(userMd5: string): Record<string, string> {
+    if (this.wcdb4Client) {
+      const username = this.chatMd5ToUsername.get(userMd5)
+      if (!username || !username.endsWith('@chatroom')) return {}
+
+      const members: Record<string, string> = {}
+      for (const member of this.wcdb4Client.getGroupMembers(username)) {
+        if (member.m_nsUsrName) {
+          members[member.m_nsUsrName] = member.nickname || member.m_nsUsrName
+        }
+      }
+      return members
+    }
+
+    return this.getAllGroupMembers()
+  }
+
+  public getGroupMember(wxid: string, chatroomId?: string): GroupMemberInfo | null {
+    if (this.wcdb4Client && chatroomId) {
+      return (
+        this.wcdb4Client
+          .getGroupMembers(chatroomId)
+          .find((member) => member.m_nsUsrName === wxid) || null
+      )
+    }
+
     if (!this.correctUserId) return null
 
     // 检查缓存
@@ -251,7 +356,24 @@ export class WechatDb {
     return this.chatDb || []
   }
 
+  public getMyAvatarUrl(): string | undefined {
+    return this.wcdb4Client?.getMyAvatarUrl()
+  }
+
+  public getWcdb4Client(): Wcdb4Client | null {
+    return this.wcdb4Client
+  }
+
   public getUserMessages(userMd5: string, startTime?: number, endTime?: number): WechatMessage[] {
+    if (this.wcdb4Client) {
+      const username = this.chatMd5ToUsername.get(userMd5)
+      if (!username) return []
+      return this.wcdb4Client.getMessages(username, startTime, endTime).map((message) => ({
+        ...message,
+        ...message.raw
+      }))
+    }
+
     if (!this.chatDb || !this.correctUserId) return []
 
     const tableName = `Chat_${userMd5}`
@@ -302,6 +424,18 @@ export class WechatDb {
   }
 
   public searchAllMessages(keyword: string): string | null {
+    if (this.wcdb4Client) {
+      const lowerKeyword = keyword.trim().toLowerCase()
+      if (!lowerKeyword) return null
+      for (const session of this.wcdb4Client.getSessions()) {
+        const found = this.wcdb4Client
+          .getMessages(session.username)
+          .some((message) => message.msgContent.toLowerCase().includes(lowerKeyword))
+        if (found) return `Chat_${this.md5(session.username)}`
+      }
+      return null
+    }
+
     if (!this.correctUserId) return null
 
     for (let i = 0; i < 10; i++) {

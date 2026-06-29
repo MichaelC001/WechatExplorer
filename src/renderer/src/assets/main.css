@@ -133,6 +133,12 @@ body {
   width: 12px;
 }
 
+.section-empty {
+  padding: 10px 14px 12px 27px;
+  color: #888;
+  font-size: 12px;
+}
+
 .contact-item {
   padding: 10px;
   display: flex;
@@ -159,6 +165,16 @@ body {
   justify-content: center;
   font-size: 12px;
   color: #fff;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.contact-avatar img,
+.message-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .contact-info {
@@ -213,6 +229,319 @@ body {
   padding: 0;
   display: flex;
   flex-direction: column;
+}
+
+.wechat-message-list {
+  padding: 18px 28px;
+  gap: 14px;
+  background-color: #edf1f2;
+  background-image:
+    radial-gradient(circle at 20px 20px, rgba(0, 0, 0, 0.025) 1px, transparent 1px),
+    radial-gradient(circle at 80px 70px, rgba(0, 0, 0, 0.02) 1px, transparent 1px);
+  background-size: 120px 120px;
+}
+
+.wechat-message-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+}
+
+.wechat-message-row.mine {
+  justify-content: flex-end;
+}
+
+.message-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 6px;
+  background: #d6d6d6;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex: 0 0 38px;
+  font-size: 13px;
+}
+
+.mine-avatar {
+  background: #607d86;
+}
+
+.message-stack {
+  max-width: min(68%, 720px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.wechat-message-row.mine .message-stack {
+  align-items: flex-end;
+}
+
+.message-sender-name {
+  color: #6f777a;
+  font-size: 12px;
+  margin: 0 0 4px 2px;
+}
+
+.message-bubble {
+  position: relative;
+  padding: 9px 13px;
+  border-radius: 6px;
+  background: #fff;
+  color: #222;
+  font-size: 15px;
+  line-height: 1.55;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.wechat-message-row.mine .message-bubble {
+  background: #516d76;
+  color: #fff;
+}
+
+.message-bubble::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+
+.wechat-message-row.other .message-bubble::before {
+  left: -6px;
+  border-right: 6px solid #fff;
+}
+
+.wechat-message-row.mine .message-bubble::before {
+  right: -6px;
+  border-left: 6px solid #516d76;
+}
+
+.message-meta {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  color: #9aa1a4;
+  font-size: 11px;
+}
+
+.message-text {
+  min-width: 0;
+}
+
+.voice-bubble {
+  min-width: 138px;
+}
+
+.image-message-bubble {
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  box-shadow: none;
+  white-space: normal;
+}
+
+.wechat-message-row.mine .image-message-bubble {
+  background: transparent;
+}
+
+.image-message-bubble::before {
+  display: none;
+}
+
+.image-bubble {
+  position: relative;
+  max-width: min(260px, 46vw);
+  max-height: 220px;
+  min-width: 96px;
+  min-height: 72px;
+  border-radius: 7px;
+  overflow: hidden;
+  background: #fff;
+  cursor: zoom-in;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.image-content {
+  display: block;
+  max-width: min(260px, 46vw);
+  max-height: 220px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  background: #f7f7f7;
+}
+
+.image-loading,
+.image-placeholder,
+.image-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 18px;
+  color: #768184;
+  font-size: 13px;
+}
+
+.image-placeholder-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.image-actions {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.image-bubble:hover .image-actions {
+  opacity: 1;
+}
+
+.image-action-btn {
+  border: 0;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.48);
+  color: #fff;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+.voice-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.voice-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.08);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.wechat-message-row.mine .voice-icon {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.voice-bars {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 16px;
+}
+
+.voice-bars i {
+  width: 3px;
+  border-radius: 3px;
+  background: currentColor;
+  opacity: 0.75;
+}
+
+.voice-bars i:nth-child(1) {
+  height: 7px;
+}
+
+.voice-bars i:nth-child(2) {
+  height: 13px;
+}
+
+.voice-bars i:nth-child(3) {
+  height: 9px;
+}
+
+.sticker-message {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.sticker-image {
+  display: block;
+  max-width: 140px;
+  max-height: 140px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
+.sticker-placeholder {
+  color: #666;
+  font-size: 14px;
+}
+
+.sticker-md5 {
+  max-width: 180px;
+  color: #999;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-message {
+  min-width: 160px;
+  max-width: 320px;
+}
+
+.quoted-message {
+  display: flex;
+  gap: 4px;
+  max-width: 100%;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.wechat-message-row.other .quoted-message {
+  background: #f0f0f0;
+  color: #666;
+}
+
+.quoted-sender {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quoted-sender::after {
+  content: ':';
+}
+
+.quoted-text {
+  flex: 0 0 auto;
+}
+
+.quote-reply {
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .chat-table {
@@ -272,7 +601,8 @@ body {
   width: 150px;
 }
 
-.col-content {}
+.col-content {
+}
 
 .chat-toolbar {
   padding: 10px;
@@ -377,4 +707,278 @@ body {
   background: transparent;
   box-shadow: none;
   padding: 0;
+}
+
+.image-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(16, 24, 28, 0.28);
+  backdrop-filter: blur(1px);
+}
+
+.image-viewer-window {
+  width: min(900px, 86vw);
+  height: min(700px, 82vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 8px;
+  background: #eaf0f1;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+}
+
+.image-viewer-titlebar {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.78);
+  color: #333;
+  font-size: 14px;
+}
+
+.image-viewer-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.image-viewer-title {
+  margin-right: 8px;
+  font-weight: 500;
+}
+
+.image-viewer-zoom {
+  min-width: 44px;
+  color: #666;
+  text-align: center;
+}
+
+.image-viewer-divider {
+  width: 1px;
+  height: 18px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.image-viewer-titlebar button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #555;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.image-viewer-titlebar button:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.image-viewer-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  overflow: auto;
+  cursor: grab;
+  user-select: none;
+}
+
+.image-viewer-stage img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  box-shadow: 0 3px 16px rgba(0, 0, 0, 0.12);
+  transform-origin: center center;
+  transition: transform 0.08s ease-out;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Voice Player */
+.voice-message {
+  cursor: pointer;
+  user-select: none;
+}
+
+.voice-loading {
+  opacity: 0.6;
+}
+
+.voice-error {
+  opacity: 0.8;
+}
+
+.voice-loading-text {
+  font-size: 12px;
+  color: #999;
+}
+
+.voice-error-text {
+  color: #999;
+}
+
+.voice-duration {
+  font-size: 12px;
+  margin-left: 4px;
+  min-width: 32px;
+}
+
+.voice-icon.playing {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+/* Rich Message Bubbles */
+.location-message {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  min-width: 180px;
+  max-width: 280px;
+}
+
+.location-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+}
+
+.location-info {
+  flex: 1;
+  overflow: hidden;
+}
+
+.location-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.location-label {
+  font-size: 12px;
+  color: #666;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.location-coords {
+  font-size: 11px;
+  color: #999;
+  margin-top: 2px;
+}
+
+.wechat-message-row.mine .location-message {
+  flex-direction: row-reverse;
+}
+
+.card-message {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 160px;
+  max-width: 240px;
+}
+
+.card-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  background: #07c160;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.card-info {
+  flex: 1;
+  overflow: hidden;
+}
+
+.card-nickname {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-username {
+  font-size: 12px;
+  color: #666;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-username:hover {
+  color: #07c160;
+}
+
+.share-message {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  min-width: 180px;
+  max-width: 280px;
+}
+
+.share-appname {
+  font-size: 11px;
+  color: #999;
+}
+
+.share-title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.share-desc {
+  font-size: 12px;
+  color: #666;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.share-url {
+  font-size: 11px;
+  color: #999;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voip-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.voip-icon {
+  font-size: 16px;
+}
+
+.voip-status {
+  font-size: 13px;
 }

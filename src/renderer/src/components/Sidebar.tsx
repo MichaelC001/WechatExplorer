@@ -48,7 +48,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       className={`contact-item ${selectedContact?.md5 === contact.md5 ? 'active' : ''}`}
       onClick={() => onSelectContact(contact)}
     >
-      <div className="contact-avatar">{contact.m_nsNickName.charAt(0)}</div>
+      <div className="contact-avatar">
+        {contact.avatar ? (
+          <img src={contact.avatar} alt={contact.m_nsNickName} referrerPolicy="no-referrer" />
+        ) : (
+          (contact.m_nsNickName || contact.m_nsUsrName || '?').charAt(0)
+        )}
+      </div>
       <div className="contact-info">
         <div className="contact-name">{contact.m_nsNickName}</div>
       </div>
@@ -98,12 +104,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span className="arrow">{isGroupsExpanded ? '▼' : '▶'}</span> 群聊 ({groups.length})
         </div>
         {isGroupsExpanded && groups.map(renderContactItem)}
+        {isGroupsExpanded && groups.length === 0 && <div className="section-empty">暂无群聊</div>}
 
         {/* 联系人部分 */}
         <div className="section-header" onClick={() => setIsContactsExpanded(!isContactsExpanded)}>
           <span className="arrow">{isContactsExpanded ? '▼' : '▶'}</span> 联系人 ({users.length})
         </div>
         {isContactsExpanded && users.map(renderContactItem)}
+        {isContactsExpanded && users.length === 0 && (
+          <div className="section-empty">暂无联系人</div>
+        )}
       </div>
       {/* <div className="sidebar-footer">
                 <div className="sidebar-btn" onClick={() => window.location.reload()}>

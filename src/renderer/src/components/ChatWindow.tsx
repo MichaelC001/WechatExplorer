@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { toPng } from 'html-to-image'
 import { Message, Contact } from '../../../shared/types'
+import { VoicePlayer } from './VoicePlayer'
+import { RichMessageBubble } from './RichMessageBubble'
+import { ImageBubble } from './ImageBubble'
 
 interface ChatWindowProps {
   contact: Contact | null
@@ -43,12 +46,14 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const imageContainerRef = useRef<HTMLDivElement>(null)
   const [generatedImage, setGeneratedImage] = useState<string | null>(null)
-  const [showAvatar, setShowAvatar] = useState(false)
-
-  const [colWidths, setColWidths] = useState([150, 100, 180, 400])
-  const [resizingColIndex, setResizingColIndex] = useState<number | null>(null)
-  const startXRef = useRef(0)
-  const startWidthRef = useRef(0)
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [imageScale, setImageScale] = useState(0.75)
+  const [imageRotation, setImageRotation] = useState(0)
+  const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 })
+  const imageDragRef = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(
+    null
+  )
+  const [showAvatar, setShowAvatar] = useState(true)
 
   // AI Settings
   const [showSettingsModal, setShowSettingsModal] = useState(false)
@@ -74,32 +79,54 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     scrollToBottom()
   }, [messages])
 
-  const startResizing = (index: number, e: React.MouseEvent): void => {
-    e.preventDefault()
-    setResizingColIndex(index)
-    startXRef.current = e.clientX
-    startWidthRef.current = colWidths[index]
-
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
+  const openImagePreview = (imageUrl: string): void => {
+    setPreviewImage(imageUrl)
+    setImageScale(0.75)
+    setImageRotation(0)
+    setImageOffset({ x: 0, y: 0 })
   }
 
-  const handleMouseMove = (e: MouseEvent): void => {
-    if (resizingColIndex === null) return
-    const diff = e.clientX - startXRef.current
-    const newWidth = Math.max(50, startWidthRef.current + diff)
+  const closeImagePreview = (): void => {
+    setPreviewImage(null)
+    imageDragRef.current = null
+  }
 
-    setColWidths((prev) => {
-      const newCols = [...prev]
-      newCols[resizingColIndex] = newWidth
-      return newCols
+  const zoomImage = (delta: number): void => {
+    setImageScale((prev) => Math.min(3, Math.max(0.25, Number((prev + delta).toFixed(2)))))
+  }
+
+  const resetImageTransform = (): void => {
+    setImageScale(0.75)
+    setImageRotation(0)
+    setImageOffset({ x: 0, y: 0 })
+  }
+
+  const handleViewerWheel = (event: React.WheelEvent): void => {
+    event.preventDefault()
+    zoomImage(event.deltaY > 0 ? -0.1 : 0.1)
+  }
+
+  const handleViewerMouseDown = (event: React.MouseEvent): void => {
+    event.preventDefault()
+    imageDragRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      offsetX: imageOffset.x,
+      offsetY: imageOffset.y
+    }
+  }
+
+  const handleViewerMouseMove = (event: React.MouseEvent): void => {
+    if (!imageDragRef.current) return
+    const drag = imageDragRef.current
+    setImageOffset({
+      x: drag.offsetX + event.clientX - drag.x,
+      y: drag.offsetY + event.clientY - drag.y
     })
   }
 
-  const handleMouseUp = (): void => {
-    setResizingColIndex(null)
-    document.removeEventListener('mousemove', handleMouseMove)
-    document.removeEventListener('mouseup', handleMouseUp)
+  const handleViewerMouseUp = (): void => {
+    imageDragRef.current = null
   }
 
   const handleExport = (days: number | 'all'): void => {
@@ -172,8 +199,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     const filteredMessages = messages
       .filter((msg) => !'分享消息,图片,表情包,视频'.split(',').includes(msg.type))
       .map((msg) => {
-        const { img, id, isSender, ...rest } = msg
-        return rest
+        return {
+          from: msg.from,
+          type: msg.type,
+          datetime: msg.datetime,
+          content: msg.content,
+          name: msg.name
+        }
       })
     const recentMessages = filteredMessages
       .map((msg) => {
@@ -248,8 +280,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   const filteredMessages = React.useMemo(() => {
     return messages.filter((msg) => {
-      const filterTypes = (import.meta.env.VITE_FILTER_MSG_TYPES || '分享消息,图片,表情包,视频')
+      const filterTypes = (import.meta.env.VITE_FILTER_MSG_TYPES || '')
         .split(',')
+        .map((type) => type.trim())
         .filter(Boolean)
       const typeMatch = !filterTypes.includes(msg.type)
       const contentMatch = !contentFilter || msg.content.includes(contentFilter)
@@ -274,74 +307,67 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         <div className="window-controls"></div>
       </div>
 
-      <div className="message-list">
-        <table className="chat-table" style={{ tableLayout: 'fixed' }}>
-          <thead>
-            <tr>
-              <th style={{ width: colWidths[0], position: 'relative' }}>
-                发送者
-                <div className="column-resizer" onMouseDown={(e) => startResizing(0, e)} />
-              </th>
-              <th style={{ width: colWidths[1], position: 'relative' }}>
-                类型
-                <div className="column-resizer" onMouseDown={(e) => startResizing(1, e)} />
-              </th>
-              <th style={{ width: colWidths[2], position: 'relative' }}>
-                时间
-                <div className="column-resizer" onMouseDown={(e) => startResizing(2, e)} />
-              </th>
-              <th style={{ width: colWidths[3] }}>内容</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleMessages.map((msg) => (
-              <tr key={msg.id}>
-                <td
-                  style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                  title={msg.from}
-                >
-                  {msg.from}
-                </td>
-                <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {msg.type}
-                </td>
-                <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {msg.datetime}
-                </td>
-                <td style={{ wordBreak: 'break-all', display: 'flex', alignItems: 'center' }}>
-                  {showAvatar && msg?.img && (
-                    <img style={{ width: '40px', height: '40px' }} src={msg?.img}></img>
+      <div className="message-list wechat-message-list">
+        {visibleMessages.map((msg) => {
+          const isMine = msg.from === 'assistant'
+          const displayName = isMine
+            ? '我'
+            : isGroupChat
+              ? msg.name || msg.from
+              : contact.m_nsNickName
+          const avatarSrc = isMine ? msg.img : msg.img || contact.avatar
+          const isVoice = msg.type === '语音'
+          const isImage = msg.type === '图片'
+          const isRichMedia = ['名片', '位置', '分享消息', '通话', '表情包'].includes(msg.type)
+
+          return (
+            <div key={msg.id} className={`wechat-message-row ${isMine ? 'mine' : 'other'}`}>
+              {!isMine && showAvatar && (
+                <div className="message-avatar">
+                  {avatarSrc ? (
+                    <img src={avatarSrc} alt={displayName} referrerPolicy="no-referrer" />
+                  ) : (
+                    (displayName || '?').charAt(0)
                   )}
-                  <div
-                    style={{
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      display: !showAvatar ? 'flex' : 'block'
-                    }}
-                  >
-                    {(msg.name || contact.m_nsNickName) && (
-                      <div style={{ display: 'flex', fontSize: 18 }}>
-                        {isGroupChat ? msg.name : msg.from === 'user' ? contact.m_nsNickName : '我'}
-                        <span>{isGroupChat ? (msg.name ? ':' : '') : ':'} </span>
-                      </div>
-                    )}
-                    <div
-                      style={{
-                        fontSize: 18,
-                        background: '#fff',
-                        margin: 4,
-                        padding: 4,
-                        borderRadius: '4px'
-                      }}
-                    >
-                      {msg.content}
-                    </div>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </div>
+              )}
+              <div className="message-stack">
+                {!isMine && isGroupChat && <div className="message-sender-name">{displayName}</div>}
+                <div
+                  className={`message-bubble ${isVoice ? 'voice-bubble' : ''} ${isImage ? 'image-message-bubble' : ''}`}
+                >
+                  {isVoice && msg.sessionId ? (
+                    <VoicePlayer
+                      sessionId={msg.sessionId}
+                      localId={msg.localId || 0}
+                      createTime={msg.createTime || 0}
+                    />
+                  ) : isImage && msg.contentData && msg.contentData.type === 'image' ? (
+                    <ImageBubble
+                      imageMd5={msg.contentData.md5}
+                      imageDatName={msg.contentData.datName}
+                      sessionId={msg.sessionId}
+                      onImageClick={openImagePreview}
+                    />
+                  ) : isRichMedia && msg.contentData ? (
+                    <RichMessageBubble contentData={msg.contentData} />
+                  ) : (
+                    <div className="message-text">{msg.content}</div>
+                  )}
+                </div>
+                <div className="message-meta">
+                  <span>{msg.datetime}</span>
+                  <span>{msg.type}</span>
+                </div>
+              </div>
+              {isMine && showAvatar && (
+                <div className="message-avatar mine-avatar">
+                  {avatarSrc ? <img src={avatarSrc} alt="我" referrerPolicy="no-referrer" /> : '我'}
+                </div>
+              )}
+            </div>
+          )
+        })}
         {filteredMessages.length > displayLimit && (
           <div style={{ textAlign: 'center', padding: '10px' }}>
             <button
@@ -476,6 +502,55 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
               >
                 关闭
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewImage && (
+        <div className="image-viewer-overlay" onClick={closeImagePreview}>
+          <div className="image-viewer-window" onClick={(e) => e.stopPropagation()}>
+            <div className="image-viewer-titlebar">
+              <div className="image-viewer-tools">
+                <span className="image-viewer-title">图片查看</span>
+                <button onClick={() => zoomImage(-0.1)} title="缩小">
+                  −
+                </button>
+                <span className="image-viewer-zoom">{Math.round(imageScale * 100)}%</span>
+                <button onClick={() => zoomImage(0.1)} title="放大">
+                  +
+                </button>
+                <span className="image-viewer-divider" />
+                <button onClick={() => setImageRotation((prev) => prev - 90)} title="左旋转">
+                  ↶
+                </button>
+                <button onClick={() => setImageRotation((prev) => prev + 90)} title="右旋转">
+                  ↷
+                </button>
+                <button onClick={resetImageTransform} title="重置">
+                  ⟲
+                </button>
+              </div>
+              <button className="image-viewer-close" onClick={closeImagePreview} aria-label="关闭">
+                ×
+              </button>
+            </div>
+            <div
+              className="image-viewer-stage"
+              onWheel={handleViewerWheel}
+              onMouseDown={handleViewerMouseDown}
+              onMouseMove={handleViewerMouseMove}
+              onMouseUp={handleViewerMouseUp}
+              onMouseLeave={handleViewerMouseUp}
+            >
+              <img
+                src={previewImage}
+                alt="图片预览"
+                draggable={false}
+                style={{
+                  transform: `translate(${imageOffset.x}px, ${imageOffset.y}px) scale(${imageScale}) rotate(${imageRotation}deg)`
+                }}
+              />
             </div>
           </div>
         </div>

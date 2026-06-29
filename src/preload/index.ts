@@ -10,9 +10,16 @@ const api = {
   search: (keyword: string) => ipcRenderer.invoke('db:search', keyword),
   aiChat: (
     messages: { role: string; content: string }[],
-    options?: { apiKey?: string; model?: string }
+    options?: { apiKey?: string; model?: string; baseURL?: string }
   ) => ipcRenderer.invoke('ai:chat', messages, options),
-  copyImage: (base64String) => ipcRenderer.invoke('copy-image', base64String)
+  copyImage: (base64String) => ipcRenderer.invoke('copy-image', base64String),
+  getVoiceData: (sessionId: string, localId: number, createTime: number, svrId?: string | number) =>
+    ipcRenderer.invoke('db:getVoiceData', sessionId, localId, createTime, svrId),
+  parseMessage: (content: string, messageType: number) =>
+    ipcRenderer.invoke('db:parseMessage', content, messageType),
+  getImage: (imageMd5?: string, imageDatNameOrThumb?: string | boolean, sessionId?: string) =>
+    ipcRenderer.invoke('db:getImage', imageMd5, imageDatNameOrThumb, sessionId),
+  getSticker: (cdnUrl?: string, md5?: string) => ipcRenderer.invoke('db:getSticker', cdnUrl, md5)
 }
 
 if (process.contextIsolated) {
