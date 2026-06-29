@@ -53,7 +53,7 @@ export class WechatDb {
 
   constructor(rawKey: string) {
     this.rawKey = rawKey
-    console.log(`Initializing WechatDb with key: ${rawKey}`)
+    console.log(`Initializing WechatDb with key length: ${rawKey.trim().length}`)
 
     if (this.tryOpenWechat4()) {
       this.chatDb = this.getChatDbNumber()

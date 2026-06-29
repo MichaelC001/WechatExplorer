@@ -26,7 +26,6 @@ specifiers:
   eslint-plugin-react-refresh: ^0.4.24
   fs-extra: ^11.3.2
   fzstd: ^0.1.1
-  html-to-image: ^1.11.13
   koffi: ^2.9.0
   openai: ^6.10.0
   prettier: ^3.7.4
@@ -42,7 +41,6 @@ dependencies:
   better-sqlite3-multiple-ciphers: 12.5.0
   fs-extra: 11.3.2
   fzstd: 0.1.1
-  html-to-image: 1.11.13
   koffi: 2.16.2
   openai: 6.10.0
   silk-wasm: 3.7.1
@@ -2945,10 +2943,6 @@ packages:
     dependencies:
       lru-cache: 6.0.0
     dev: true
-
-  /html-to-image/1.11.13:
-    resolution: {integrity: sha512-cuOPoI7WApyhBElTTb9oqsawRvZ0rHhaHwghRLlTuffoD1B2aDemlCruLeZrUIIdvG7gs9xeELEPm6PhuASqrg==}
-    dev: false
 
   /http-cache-semantics/4.2.0:
     resolution: {integrity: sha512-dTxcvPXqPvXBQpq5dUr6mEMJX4oIEFv6bwom3FDwKRDsuIjjJGANqhBuoAn9c1RQJIdAKav33ED65E2ys+87QQ==}

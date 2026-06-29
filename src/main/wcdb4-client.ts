@@ -65,6 +65,7 @@ export class Wcdb4Client {
   private initialized = false
   private displayNameCache = new Map<string, string>()
   private avatarCache = new Map<string, string>()
+  private groupNicknameCache = new Map<string, Map<string, string>>()
   private cachedSessions: Wcdb4Session[] | null = null
 
   private wcdbInit: (() => number) | null = null
@@ -94,6 +95,9 @@ export class Wcdb4Client {
     | ((handle: number, kind: string, dbPath: string, sql: string, outJson: WcdbVoidOut) => number)
     | null = null
   private wcdbGetGroupMembers:
+    | ((handle: number, chatroomId: string, outJson: WcdbVoidOut) => number)
+    | null = null
+  private wcdbGetGroupNicknames:
     | ((handle: number, chatroomId: string, outJson: WcdbVoidOut) => number)
     | null = null
   private wcdbOpenMessageCursor:
@@ -234,6 +238,7 @@ export class Wcdb4Client {
     this.cachedSessions = null
     this.displayNameCache.clear()
     this.avatarCache.clear()
+    this.groupNicknameCache.clear()
   }
 
   getSessions(): Wcdb4Session[] {
@@ -291,12 +296,7 @@ export class Wcdb4Client {
   }
 
   getMyAvatarUrl(): string | undefined {
-    const rawAccountName = path.basename(this.accountRoot)
-    const candidates = this.uniq([
-      this.wxid,
-      rawAccountName,
-      Wcdb4Client.cleanAccountDirName(rawAccountName)
-    ])
+    const candidates = this.getMyUsernameCandidates()
     this.hydrateAvatarUrls(candidates)
 
     for (const candidate of candidates) {
@@ -304,6 +304,15 @@ export class Wcdb4Client {
       if (avatar) return avatar
     }
 
+    return undefined
+  }
+
+  getMyGroupNickname(chatroomId: string): string | undefined {
+    const groupNicknames = this.getGroupNicknames(chatroomId)
+    for (const candidate of this.getMyUsernameCandidates()) {
+      const nickname = groupNicknames.get(candidate)
+      if (nickname) return nickname
+    }
     return undefined
   }
 
@@ -413,11 +422,12 @@ export class Wcdb4Client {
     if (!this.wcdbGetGroupMembers || !chatroomId) return []
 
     try {
+      const groupNicknames = this.getGroupNicknames(chatroomId)
       const rows = this.callJson<Record<string, unknown>[]>((handle, outJson) =>
         this.wcdbGetGroupMembers!(handle, chatroomId, outJson)
       )
 
-      return (Array.isArray(rows) ? rows : []).map((row) => {
+      const members = (Array.isArray(rows) ? rows : []).map((row) => {
         const username = this.pickString(row, [
           'username',
           'userName',
@@ -425,10 +435,15 @@ export class Wcdb4Client {
           'member_username',
           'm_nsUsrName'
         ])
-        const nickname = this.pickString(row, [
+        const memberNickname = this.pickString(row, [
           'nickname',
+          'nickName',
           'displayName',
           'display_name',
+          'groupNickname',
+          'group_nickname',
+          'roomNickname',
+          'room_nickname',
           'remark',
           'm_nsNickName'
         ])
@@ -440,19 +455,58 @@ export class Wcdb4Client {
         ])
 
         if (username) {
-          if (nickname) this.displayNameCache.set(username, nickname)
           if (avatar) this.avatarCache.set(username, avatar)
         }
 
         return {
           m_nsUsrName: username,
-          nickname: nickname || username,
+          nickname: groupNicknames.get(username) || memberNickname,
           m_nsHeadImgUrl: avatar
         }
       })
+
+      const missingDisplayNames = members
+        .filter((member) => !member.nickname)
+        .map((member) => member.m_nsUsrName)
+        .filter(Boolean)
+      this.hydrateDisplayNames(missingDisplayNames)
+      return members.map((member) => ({
+        ...member,
+        nickname:
+          member.nickname || this.displayNameCache.get(member.m_nsUsrName) || member.m_nsUsrName,
+        m_nsHeadImgUrl: member.m_nsHeadImgUrl || this.avatarCache.get(member.m_nsUsrName) || ''
+      }))
     } catch {
       return []
     }
+  }
+
+  getGroupNicknames(chatroomId: string): Map<string, string> {
+    const cached = this.groupNicknameCache.get(chatroomId)
+    if (cached) return cached
+
+    const nicknames = new Map<string, string>()
+    if (!this.wcdbGetGroupNicknames || !chatroomId) return nicknames
+
+    try {
+      const rows = this.callJson<Record<string, string> | Record<string, unknown>[]>(
+        (handle, outJson) => this.wcdbGetGroupNicknames!(handle, chatroomId, outJson)
+      )
+      this.readStringMap(rows, [
+        'nickname',
+        'nickName',
+        'displayName',
+        'display_name',
+        'groupNickname',
+        'group_nickname',
+        'name'
+      ]).forEach((nickname, username) => nicknames.set(username, nickname))
+      this.groupNicknameCache.set(chatroomId, nicknames)
+    } catch (error) {
+      console.warn(`[WCDB4] failed to get group nicknames for ${chatroomId}:`, error)
+    }
+
+    return nicknames
   }
 
   async getVoiceData(
@@ -648,6 +702,14 @@ export class Wcdb4Client {
       ) as (handle: number, chatroomId: string, outJson: WcdbVoidOut) => number
     } catch {
       this.wcdbGetGroupMembers = null
+    }
+
+    try {
+      this.wcdbGetGroupNicknames = lib.func(
+        'int32 wcdb_get_group_nicknames(int64 handle, const char* chatroomId, _Out_ void** outJson)'
+      ) as (handle: number, chatroomId: string, outJson: WcdbVoidOut) => number
+    } catch {
+      this.wcdbGetGroupNicknames = null
     }
 
     try {
@@ -1166,6 +1228,11 @@ export class Wcdb4Client {
 
   private uniq(values: string[]): string[] {
     return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
+  }
+
+  private getMyUsernameCandidates(): string[] {
+    const rawAccountName = path.basename(this.accountRoot)
+    return this.uniq([this.wxid, rawAccountName, Wcdb4Client.cleanAccountDirName(rawAccountName)])
   }
 
   private normalizeTimestamp(input: number): number {

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import { GroupReportExportRequest } from '../shared/group-report'
 
 // 渲染器的自定义 API
 const api = {
@@ -19,7 +20,10 @@ const api = {
     ipcRenderer.invoke('db:parseMessage', content, messageType),
   getImage: (imageMd5?: string, imageDatNameOrThumb?: string | boolean, sessionId?: string) =>
     ipcRenderer.invoke('db:getImage', imageMd5, imageDatNameOrThumb, sessionId),
-  getSticker: (cdnUrl?: string, md5?: string) => ipcRenderer.invoke('db:getSticker', cdnUrl, md5)
+  getSticker: (cdnUrl?: string, md5?: string) => ipcRenderer.invoke('db:getSticker', cdnUrl, md5),
+  exportGroupReport: (request: GroupReportExportRequest) =>
+    ipcRenderer.invoke('report:export', request),
+  revealGroupReport: (filePath: string) => ipcRenderer.invoke('report:reveal', filePath)
 }
 
 if (process.contextIsolated) {

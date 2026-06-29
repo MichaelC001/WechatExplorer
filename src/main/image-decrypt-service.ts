@@ -236,8 +236,6 @@ export class ImageDecryptService {
         version,
         'file:',
         datPath,
-        'xorKey:',
-        this.xorKey,
         'aesKey present:',
         !!this.aesKey
       )
@@ -258,7 +256,6 @@ export class ImageDecryptService {
           return null
         }
         const key = Buffer.from(this.aesKey, 'ascii').slice(0, 16)
-        console.log('[ImageDecrypt] AES key bytes:', key.toString('hex'), 'length:', key.length)
         decrypted = this.decryptDatV4(datPath, key)
       }
 

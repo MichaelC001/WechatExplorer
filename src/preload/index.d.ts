@@ -1,5 +1,6 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import { Contact, Message } from '../shared/types'
+import { GroupReportExportRequest, GroupReportExportResult } from '../shared/group-report'
 
 export type ParsedContent =
   | { type: 'text'; content: string }
@@ -58,6 +59,8 @@ declare global {
         cdnUrl?: string,
         md5?: string
       ) => Promise<{ success: boolean; data?: string; error?: string }>
+      exportGroupReport: (request: GroupReportExportRequest) => Promise<GroupReportExportResult>
+      revealGroupReport: (filePath: string) => Promise<{ success: boolean; error?: string }>
     }
   }
 }

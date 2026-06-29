@@ -1,9 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { toPng } from 'html-to-image'
 import { Message, Contact } from '../../../shared/types'
 import { VoicePlayer } from './VoicePlayer'
 import { RichMessageBubble } from './RichMessageBubble'
 import { ImageBubble } from './ImageBubble'
+import {
+  buildGroupReportInput,
+  GROUP_REPORT_SYSTEM_PROMPT,
+  parseGroupDailyReport
+} from '../utils/group-report'
 
 interface ChatWindowProps {
   contact: Contact | null
@@ -13,27 +17,41 @@ interface ChatWindowProps {
   onRefreshData?: () => void
 }
 
-const systemPrompt = `你是一个中文的群聊总结的助手，你可以为一个微信的群聊记录，提取并总结每个时间段大家在重点讨论的话题内容。
-请注意 不要回复总结除外的内容, 并且不要输出 群友的wxid  微信id 只需要显示群名称
-请帮我将给出的群聊内容总结成一个群聊报告，需要你生成7个最重要 最火爆的话题的总结（如果还有更多话题，可以在后面简单补充）。每个话题包含以下内容：
-- 整体评价
-    - 话题名(50字以内，带序号1️⃣2️⃣3️⃣，同时附带热度，以🔥数量表示）
-        - 参与者(不超过5个人，将重复的人名去重)
-        - 注意按时间排序，时间段(从日期几点到几点)
-    - 过程(50到200字左右）
-        - 评价(50字以下)
-        - 生成这7天内热度最高的话题，27日到2日一共7天 
-需要生成27, 28, 29, 30, 31, 1, 2日的话题总结
-    - 分割线： ------------
+type SummaryDateRange = 'today' | 'yesterday' | '7days'
+type SummaryMessageType = 'text' | 'image' | 'sticker' | 'video' | 'voice' | 'share' | 'system'
 
-    另外有以下要求：
-        1. 每个话题结束使用------------分割
-2. 使用中文冒号
-3. 无需大标题
-4. 开始给出本群讨论风格的整体评价，例如活跃、太水、太黄、太暴力、话题不集中、无聊诸如此类
-5. 每个话题详细写出参与者
+const SUMMARY_DATE_OPTIONS: { value: SummaryDateRange; label: string }[] = [
+  { value: 'today', label: '今天' },
+  { value: 'yesterday', label: '昨日' },
+  { value: '7days', label: '最近 7 天' }
+]
 
-最后总结下今日最活跃的前五个发言者`
+const SUMMARY_TYPE_OPTIONS: {
+  value: SummaryMessageType
+  label: string
+  messageTypes: string[]
+}[] = [
+  { value: 'text', label: '文本', messageTypes: ['普通文本'] },
+  { value: 'image', label: '图片', messageTypes: ['图片'] },
+  { value: 'sticker', label: '表情包', messageTypes: ['表情包'] },
+  { value: 'video', label: '视频', messageTypes: ['视频'] },
+  { value: 'voice', label: '语音', messageTypes: ['语音'] },
+  { value: 'share', label: '分享/引用', messageTypes: ['分享消息', '名片', '位置', '通话'] },
+  { value: 'system', label: '系统消息', messageTypes: ['系统消息'] }
+]
+
+const getSummaryDateRange = (range: SummaryDateRange): { startTime: number; endTime: number } => {
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000
+  const endTime = Math.floor(Date.now() / 1000)
+  if (range === 'yesterday') {
+    return { startTime: startOfToday - 86400, endTime: startOfToday - 1 }
+  }
+  if (range === '7days') {
+    return { startTime: startOfToday - 6 * 86400, endTime }
+  }
+  return { startTime: startOfToday, endTime }
+}
 
 const ChatWindow: React.FC<ChatWindowProps> = ({
   contact,
@@ -42,10 +60,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   onRefresh,
   onRefreshData
 }) => {
-  const isGroupChat = contact?.type === 'group' || contact?.m_nsUsrName?.endsWith('@chatroom')
+  const isGroupChat = Boolean(
+    contact?.type === 'group' || contact?.m_nsUsrName?.endsWith('@chatroom')
+  )
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const imageContainerRef = useRef<HTMLDivElement>(null)
   const [generatedImage, setGeneratedImage] = useState<string | null>(null)
+  const [reportPaths, setReportPaths] = useState<{ htmlPath: string; pngPath: string } | null>(null)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
   const [imageScale, setImageScale] = useState(0.75)
   const [imageRotation, setImageRotation] = useState(0)
@@ -62,13 +82,25 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     () => localStorage.getItem('ai_base_url') || 'https://api.deepseek.com'
   )
   const [model, setModel] = useState(() => localStorage.getItem('ai_model') || 'deepseek-chat')
+  const [summaryDateRange, setSummaryDateRange] = useState<SummaryDateRange>('today')
+  const [summaryMessageTypes, setSummaryMessageTypes] = useState<SummaryMessageType[]>(['text'])
 
   const handleSaveSettings = (): void => {
+    if (!summaryMessageTypes.length) {
+      alert('请至少选择一种消息类型')
+      return
+    }
     localStorage.setItem('ai_api_key', apiKey)
     localStorage.setItem('ai_base_url', baseURL)
     localStorage.setItem('ai_model', model)
     setShowSettingsModal(false)
     AIChat()
+  }
+
+  const toggleSummaryMessageType = (type: SummaryMessageType): void => {
+    setSummaryMessageTypes((current) =>
+      current.includes(type) ? current.filter((item) => item !== type) : [...current, type]
+    )
   }
 
   const scrollToBottom = (): void => {
@@ -188,84 +220,50 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     document.body.removeChild(link)
   }
 
-  const [summaryContent, setSummaryContent] = useState<string>('')
   const [isLoading, setIsLoading] = useState(false)
 
   const AIChat = async (): Promise<void> => {
-    if (!messages || messages.length === 0) {
-      alert('当前没有消息可供总结')
+    if (!contact) return
+    if (!summaryMessageTypes.length) {
+      alert('请至少选择一种消息类型')
       return
     }
-    const filteredMessages = messages
-      .filter((msg) => !'分享消息,图片,表情包,视频'.split(',').includes(msg.type))
-      .map((msg) => {
-        return {
-          from: msg.from,
-          type: msg.type,
-          datetime: msg.datetime,
-          content: msg.content,
-          name: msg.name
-        }
-      })
-    const recentMessages = filteredMessages
-      .map((msg) => {
-        return `${msg.datetime} ${msg.from}: ${msg.content}`
-      })
-      .join('\n')
-
-    const prompt = `请总结以下微信聊天记录的核心内容：\n\n${recentMessages}`
-
     setIsLoading(true)
     try {
-      console.log('正在请求AI...')
+      const { startTime, endTime } = getSummaryDateRange(summaryDateRange)
+      const rangeMessages = await window.api.getMessages(contact.md5, startTime, endTime)
+      const allowedTypes = new Set(
+        SUMMARY_TYPE_OPTIONS.filter((option) => summaryMessageTypes.includes(option.value)).flatMap(
+          (option) => option.messageTypes
+        )
+      )
+      const reportMessages = rangeMessages.filter((message) => allowedTypes.has(message.type))
+      if (!reportMessages.length) throw new Error('当前条件下没有可总结的消息')
+
+      const input = buildGroupReportInput(reportMessages, contact, isGroupChat)
+      console.log('🚀 ~ AIChat ~ input:', input)
+      console.log('🚀 ~ AIChat ~ input.prompt:', input.prompt)
       const result = await window.api.aiChat(
         [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: prompt }
+          { role: 'system', content: GROUP_REPORT_SYSTEM_PROMPT },
+          { role: 'user', content: input.prompt }
         ],
         { apiKey, model, baseURL }
       )
 
-      if (result.success && result.data) {
-        console.log('AI Summary:', result.data)
-        setSummaryContent(result.data)
-
-        // 等待状态更新和渲染
-        setTimeout(() => {
-          textToImage()
-          setIsLoading(false) // 图片生成开始后停止加载
-        }, 500)
-      } else {
-        console.error('AI Error:', result.error)
-        alert(`AI 请求失败: ${result.error}`)
-        setIsLoading(false)
+      if (!result.success || !result.data) throw new Error(result.error || 'AI 请求失败')
+      const report = parseGroupDailyReport(result.data, input.topSpeakers, input.activeTimeline)
+      const exported = await window.api.exportGroupReport({ report, metadata: input.metadata })
+      if (!exported.success || !exported.imageDataUrl || !exported.htmlPath || !exported.pngPath) {
+        throw new Error(exported.error || '日报文件生成失败')
       }
+      setGeneratedImage(exported.imageDataUrl)
+      setReportPaths({ htmlPath: exported.htmlPath, pngPath: exported.pngPath })
     } catch (error) {
       console.error('AI Call Failed:', error)
-      alert('AI 请求发生错误')
+      alert(`AI 日报生成失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
       setIsLoading(false)
-    }
-  }
-
-  const textToImage = async (): Promise<void> => {
-    if (imageContainerRef.current) {
-      try {
-        const dataUrl = await toPng(imageContainerRef.current, {
-          cacheBust: true,
-          backgroundColor: '#ffffff',
-          style: {
-            transform: 'scale(1)'
-          }
-        })
-        if (dataUrl && dataUrl.length > 100) {
-          setGeneratedImage(dataUrl)
-        } else {
-          alert('生成图片为空')
-        }
-      } catch (err) {
-        console.error('Failed to generate image', err)
-        alert('生成图片失败: ' + (err instanceof Error ? err.message : String(err)))
-      }
     }
   }
   const handleCopyImage = async (): Promise<void> => {
@@ -275,8 +273,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       alert('复制成功')
     }
   }
-
-  const [displayLimit, setDisplayLimit] = useState(100)
 
   const filteredMessages = React.useMemo(() => {
     return messages.filter((msg) => {
@@ -289,8 +285,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       return typeMatch && contentMatch
     })
   }, [messages, contentFilter])
-
-  const visibleMessages = filteredMessages.slice(0, displayLimit)
 
   if (!contact) {
     return (
@@ -308,7 +302,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       </div>
 
       <div className="message-list wechat-message-list">
-        {visibleMessages.map((msg) => {
+        {filteredMessages.map((msg) => {
           const isMine = msg.from === 'assistant'
           const displayName = isMine
             ? '我'
@@ -368,22 +362,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             </div>
           )
         })}
-        {filteredMessages.length > displayLimit && (
-          <div style={{ textAlign: 'center', padding: '10px' }}>
-            <button
-              onClick={() => setDisplayLimit((prev) => prev + 100)}
-              style={{
-                padding: '8px 16px',
-                backgroundColor: '#f0f0f0',
-                border: '1px solid #ccc',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
-            >
-              加载更多 ({filteredMessages.length - displayLimit} 条剩余)
-            </button>
-          </div>
-        )}
         <div ref={messagesEndRef} />
       </div>
 
@@ -425,42 +403,14 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         </button>
       </div>
 
-      <div
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: 0,
-          height: 0,
-          overflow: 'hidden',
-          zIndex: -1
-        }}
-      >
-        <div
-          style={{
-            width: '820px',
-            padding: '20px',
-            backgroundColor: '#fff',
-            fontSize: '22px',
-            color: '#000',
-            whiteSpace: 'pre-wrap',
-            fontFamily: 'sans-serif',
-            lineHeight: '1.5'
-          }}
-          ref={imageContainerRef}
-        >
-          {summaryContent}
-        </div>
-      </div>
-
       {/* 加载模态框 */}
       {isLoading && (
         <div className="modal-overlay">
           <div className="modal-content" style={{ textAlign: 'center', minWidth: '200px' }}>
             <div style={{ fontSize: '40px', marginBottom: '20px' }}>🤖</div>
-            <div style={{ fontSize: '16px', color: '#333' }}>正在生成 AI 总结...</div>
+            <div style={{ fontSize: '16px', color: '#333' }}>正在生成群聊日报...</div>
             <div style={{ fontSize: '12px', color: '#999', marginTop: '10px' }}>
-              请稍候，生成后将自动转换为图片
+              正在分析记录、处理头像并生成 HTML 和长图
             </div>
           </div>
         </div>
@@ -496,6 +446,14 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
               >
                 📋 复制图片
               </button>
+              {reportPaths && (
+                <button
+                  onClick={() => window.api.revealGroupReport(reportPaths.pngPath)}
+                  style={{ padding: '5px 10px', cursor: 'pointer' }}
+                >
+                  在文件夹中显示
+                </button>
+              )}
               <button
                 onClick={() => setGeneratedImage(null)}
                 style={{ padding: '5px 10px', cursor: 'pointer' }}
@@ -559,8 +517,43 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       {/* AI Settings Modal */}
       {showSettingsModal && (
         <div className="modal-overlay" onClick={() => setShowSettingsModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content ai-settings-modal" onClick={(e) => e.stopPropagation()}>
             <h3>AI 设置</h3>
+            <div className="ai-filter-section">
+              <div className="ai-filter-label">时间范围</div>
+              <div className="ai-date-options">
+                {SUMMARY_DATE_OPTIONS.map((option) => (
+                  <label
+                    key={option.value}
+                    className={summaryDateRange === option.value ? 'selected' : ''}
+                  >
+                    <input
+                      type="radio"
+                      name="summary-date-range"
+                      value={option.value}
+                      checked={summaryDateRange === option.value}
+                      onChange={() => setSummaryDateRange(option.value)}
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="ai-filter-section">
+              <div className="ai-filter-label">消息类型</div>
+              <div className="ai-type-options">
+                {SUMMARY_TYPE_OPTIONS.map((option) => (
+                  <label key={option.value}>
+                    <input
+                      type="checkbox"
+                      checked={summaryMessageTypes.includes(option.value)}
+                      onChange={() => toggleSummaryMessageType(option.value)}
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+            </div>
             <div className="form-group" style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', marginBottom: '5px' }}>模型服务:</label>
               <select

@@ -11,6 +11,8 @@ import {
   parseStickerMessageFromRow
 } from './message-parser'
 import { ImageDecryptService } from './image-decrypt-service'
+import { exportGroupReport } from './group-report-service'
+import { GroupReportExportRequest } from '../shared/group-report'
 
 let wechatDb: WechatDb | null = null
 let voiceService: VoiceService | null = null
@@ -53,8 +55,8 @@ function normalizeMsgType(value: string | number | undefined): number {
 function createWindow(): void {
   // 创建浏览器窗口
   const mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 670,
+    width: 1400,
+    height: 800,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -102,9 +104,7 @@ app.whenReady().then(() => {
   ipcMain.handle('db:init', (_, key: string) => {
     try {
       const trimmedKey = String(key || '').trim()
-      console.log(
-        `db:init build=${BUILD_MARK} keyLength=${trimmedKey.length} keyPreview=${trimmedKey.slice(0, 6)}...${trimmedKey.slice(-6)}`
-      )
+      console.log(`db:init build=${BUILD_MARK} keyLength=${trimmedKey.length}`)
       wechatDb = new WechatDb(key)
       const wcdb4Client = wechatDb.getWcdb4Client()
       if (wcdb4Client) {
@@ -175,6 +175,10 @@ app.whenReady().then(() => {
     const rawMessages = wechatDb.getUserMessages(userMd5, startTime, endTime)
     const groupMembers = wechatDb.getGroupMembersForChat(userMd5)
     const myAvatar = wechatDb.getMyAvatarUrl()
+    const myGroupNickname =
+      username?.endsWith('@chatroom') && wcdb4Client
+        ? wcdb4Client.getMyGroupNickname(username)
+        : undefined
 
     return rawMessages.map((msg: WechatMessage) => {
       const rawMsgType = parseInt(msg.messageType)
@@ -187,13 +191,12 @@ app.whenReady().then(() => {
       let content = msg.msgContent
       let img = ''
       let name = ''
-      if (isMine && myAvatar) {
-        img = myAvatar
-      } else if (typeof msg.senderAvatar === 'string') {
-        img = msg.senderAvatar
-      }
-      if (typeof msg.senderNickname === 'string') {
-        name = msg.senderNickname
+      if (isMine) {
+        if (myAvatar) img = myAvatar
+        name = myGroupNickname || (typeof msg.senderNickname === 'string' ? msg.senderNickname : '')
+      } else {
+        if (typeof msg.senderAvatar === 'string') img = msg.senderAvatar
+        if (typeof msg.senderNickname === 'string') name = msg.senderNickname
       }
       // 检查内容是否以 wxid 开头并包含冒号
       // 示例: wxid_xxxx:\nContent 或 wxid_xxxx:Content
@@ -340,6 +343,19 @@ app.whenReady().then(() => {
       return { success: true }
     } catch (error: unknown) {
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  })
+
+  ipcMain.handle('report:export', async (_, request: GroupReportExportRequest) => {
+    return exportGroupReport(request)
+  })
+
+  ipcMain.handle('report:reveal', async (_, filePath: string) => {
+    try {
+      shell.showItemInFolder(filePath)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
     }
   })
 

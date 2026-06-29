@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import type { JSX, MouseEvent } from 'react'
 
 interface ImageBubbleProps {
@@ -19,6 +19,7 @@ export function ImageBubble({
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   const loadImage = useCallback(async () => {
     if (imageUrl || loading) return
@@ -50,10 +51,22 @@ export function ImageBubble({
 
   useEffect(() => {
     if (imageUrl || loading || error) return
-    const timer = window.setTimeout(() => {
-      void loadImage()
-    }, 0)
-    return () => window.clearTimeout(timer)
+    const element = containerRef.current
+    if (!element || typeof IntersectionObserver === 'undefined') {
+      const timer = window.setTimeout(() => void loadImage(), 0)
+      return () => window.clearTimeout(timer)
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return
+        observer.disconnect()
+        void loadImage()
+      },
+      { rootMargin: '400px 0px' }
+    )
+    observer.observe(element)
+    return () => observer.disconnect()
   }, [error, imageUrl, loadImage, loading])
 
   const handleCopy = async (event: MouseEvent): Promise<void> => {
@@ -88,7 +101,7 @@ export function ImageBubble({
 
   if (!imageUrl) {
     return (
-      <div className="image-bubble image-placeholder">
+      <div ref={containerRef} className="image-bubble image-placeholder">
         <div className="image-placeholder-icon">🖼</div>
         <div className="image-placeholder-text">加载图片中</div>
       </div>
