@@ -654,7 +654,7 @@ body {
   background-color: #fff;
   padding: 20px;
   border-radius: 8px;
-  width: 300px;
+  width: 360px;
   text-align: center;
 }
 
@@ -666,6 +666,27 @@ body {
   border-radius: 4px;
 }
 
+.login-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.login-input-wrapper .login-input {
+  padding-right: 40px;
+  margin: 10px 0 10px 0;
+}
+
+.login-input-toggle {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 18px;
+}
+
 .login-btn {
   background-color: #07c160;
   color: #fff;
@@ -673,10 +694,77 @@ body {
   padding: 8px 20px;
   border-radius: 4px;
   cursor: pointer;
+  width: 100%;
+  margin-top: 8px;
 }
 
 .login-btn:hover {
   background-color: #06ad56;
+}
+
+.login-btn:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.login-btn-secondary {
+  border: 1px solid #cfd5d8;
+  background: #fff;
+  color: #30383d;
+}
+
+.login-btn-secondary:hover {
+  border-color: #07c160;
+  background: #f2fbf6;
+  color: #078f49;
+}
+
+.login-clear-btn {
+  margin-top: 10px;
+  border: 0;
+  background: transparent;
+  color: #8a949a;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.login-clear-btn:hover {
+  color: #d33b3b;
+}
+
+.login-key-status {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #f3f5f6;
+  color: #59636a;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.login-key-status.success {
+  background: #eefaf3;
+  color: #078f49;
+}
+
+.login-key-status.error {
+  background: #fff1f0;
+  color: #c73737;
+}
+
+.login-key-help-link {
+  display: inline-block;
+  margin-top: 9px;
+  color: #1677ff;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.login-key-help-link:hover {
+  text-decoration: underline;
 }
 
 .modal-overlay {

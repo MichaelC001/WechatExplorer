@@ -61,6 +61,18 @@ declare global {
       ) => Promise<{ success: boolean; data?: string; error?: string }>
       exportGroupReport: (request: GroupReportExportRequest) => Promise<GroupReportExportResult>
       revealGroupReport: (filePath: string) => Promise<{ success: boolean; error?: string }>
+      getSavedDbKey: () => Promise<{ success: boolean; key?: string; error?: string }>
+      autoGetDbKey: () => Promise<{
+        success: boolean
+        key?: string
+        error?: string
+        code?: string
+        saved?: boolean
+        warning?: string
+      }>
+      pasteAndSaveDbKey: () => Promise<{ success: boolean; key?: string; error?: string }>
+      clearSavedDbKey: () => Promise<{ success: boolean; error?: string }>
+      onDbKeyStatus: (callback: (payload: { message: string }) => void) => () => void
     }
   }
 }

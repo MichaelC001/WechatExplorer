@@ -23,7 +23,17 @@ const api = {
   getSticker: (cdnUrl?: string, md5?: string) => ipcRenderer.invoke('db:getSticker', cdnUrl, md5),
   exportGroupReport: (request: GroupReportExportRequest) =>
     ipcRenderer.invoke('report:export', request),
-  revealGroupReport: (filePath: string) => ipcRenderer.invoke('report:reveal', filePath)
+  revealGroupReport: (filePath: string) => ipcRenderer.invoke('report:reveal', filePath),
+  getSavedDbKey: () => ipcRenderer.invoke('key:getSavedDbKey'),
+  autoGetDbKey: () => ipcRenderer.invoke('key:autoGetDbKey'),
+  pasteAndSaveDbKey: () => ipcRenderer.invoke('key:pasteAndSaveDbKey'),
+  clearSavedDbKey: () => ipcRenderer.invoke('key:clearSavedDbKey'),
+  onDbKeyStatus: (callback: (payload: { message: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: { message: string }): void =>
+      callback(payload)
+    ipcRenderer.on('key:dbKeyStatus', listener)
+    return () => ipcRenderer.removeListener('key:dbKeyStatus', listener)
+  }
 }
 
 if (process.contextIsolated) {

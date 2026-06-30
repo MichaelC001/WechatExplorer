@@ -13,11 +13,15 @@ import {
 import { ImageDecryptService } from './image-decrypt-service'
 import { exportGroupReport } from './group-report-service'
 import { GroupReportExportRequest } from '../shared/group-report'
+import { DatabaseKeyStore } from './database-key-store'
+import { KeyServiceMac } from './key-service-mac'
 
 let wechatDb: WechatDb | null = null
 let voiceService: VoiceService | null = null
 let imageDecryptService: ImageDecryptService | null = null
 let stickerService: StickerService | null = null
+const databaseKeyStore = new DatabaseKeyStore()
+const keyServiceMac = new KeyServiceMac()
 const BUILD_MARK = 'wechat4-open-account-continues-after-init-1000'
 
 // WechatExplorer's WCDB native library runs InitProtection before wcdb_init.
@@ -116,6 +120,29 @@ app.whenReady().then(() => {
     } catch (error) {
       console.error('Failed to init DB:', error)
       return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  ipcMain.handle('key:getSavedDbKey', async () => databaseKeyStore.load())
+
+  ipcMain.handle('key:pasteAndSaveDbKey', async () => {
+    const clipboardKey = clipboard.readText().trim()
+    return databaseKeyStore.save(clipboardKey)
+  })
+
+  ipcMain.handle('key:clearSavedDbKey', async () => databaseKeyStore.clear())
+
+  ipcMain.handle('key:autoGetDbKey', async (event) => {
+    const result = await keyServiceMac.autoGetDbKey((message) => {
+      if (!event.sender.isDestroyed()) event.sender.send('key:dbKeyStatus', { message })
+    })
+    if (!result.success || !result.key) return result
+
+    const saved = await databaseKeyStore.save(result.key)
+    return {
+      ...result,
+      saved: saved.success,
+      warning: saved.success ? undefined : saved.error
     }
   })
 

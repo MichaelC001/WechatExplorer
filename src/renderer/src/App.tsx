@@ -3,6 +3,8 @@ import { Sidebar } from './components/Sidebar'
 import ChatWindow from './components/ChatWindow'
 import { Contact, Message } from '../../shared/types'
 
+const MAC_KEY_FAQ_URL = 'https://github.com/hicccc77/WeFlow/blob/main/docs/MAC-KEY-FAQ.md'
+
 function App(): React.ReactElement {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [dbKey, setDbKey] = useState(import.meta.env.VITE_DB_KEY || '')
@@ -12,6 +14,32 @@ function App(): React.ReactElement {
   const [filteredContacts, setFilteredContacts] = useState<Contact[]>([])
   const [dateRange, setDateRange] = useState('today') // 默认为今天
   const [contentFilter, setContentFilter] = useState('')
+  const [isFetchingDbKey, setIsFetchingDbKey] = useState(false)
+  const [dbKeyStatus, setDbKeyStatus] = useState('')
+  const [dbKeyStatusKind, setDbKeyStatusKind] = useState<'normal' | 'success' | 'error'>('normal')
+  const [showDbKey, setShowDbKey] = useState(false)
+  const [showMacKeyFaq, setShowMacKeyFaq] = useState(false)
+
+  React.useEffect(() => {
+    let active = true
+    void window.api.getSavedDbKey().then((result) => {
+      if (!active) return
+      if (result.success && result.key) {
+        setDbKey(result.key)
+        setDbKeyStatus('已加载安全保存的密钥')
+        setDbKeyStatusKind('success')
+      }
+    })
+    const unsubscribe = window.api.onDbKeyStatus(({ message }) => {
+      if (!active) return
+      setDbKeyStatus(message)
+      setDbKeyStatusKind('normal')
+    })
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [])
 
   // useEffect(() => {
   //   if (import.meta.env.VITE_DB_KEY) {
@@ -36,6 +64,55 @@ function App(): React.ReactElement {
       console.error(error)
       alert('Error connecting to database')
     }
+  }
+
+  const handleAutoGetDbKey = async (): Promise<void> => {
+    if (isFetchingDbKey) return
+    setIsFetchingDbKey(true)
+    setDbKeyStatus('正在准备获取密钥...')
+    setDbKeyStatusKind('normal')
+    setShowMacKeyFaq(false)
+    try {
+      const result = await window.api.autoGetDbKey()
+      if (!result.success || !result.key) {
+        setShowMacKeyFaq(result.code === 'SCAN_FAILED')
+        throw new Error(result.error || '获取密钥失败')
+      }
+      setDbKey(result.key)
+      setDbKeyStatus(result.saved ? '密钥已获取并安全保存' : result.warning || '密钥已获取')
+      setDbKeyStatusKind(result.saved ? 'success' : 'normal')
+    } catch (error) {
+      setDbKeyStatus(error instanceof Error ? error.message : String(error))
+      setDbKeyStatusKind('error')
+    } finally {
+      setIsFetchingDbKey(false)
+    }
+  }
+
+  const handlePasteAndSaveDbKey = async (): Promise<void> => {
+    setShowMacKeyFaq(false)
+    const result = await window.api.pasteAndSaveDbKey()
+    if (result.success && result.key) {
+      setDbKey(result.key)
+      setDbKeyStatus('已从剪贴板粘贴并安全保存')
+      setDbKeyStatusKind('success')
+    } else {
+      setDbKeyStatus(result.error || '粘贴并保存失败')
+      setDbKeyStatusKind('error')
+    }
+  }
+
+  const handleClearSavedDbKey = async (): Promise<void> => {
+    setShowMacKeyFaq(false)
+    const result = await window.api.clearSavedDbKey()
+    if (!result.success) {
+      setDbKeyStatus(result.error || '清除密钥失败')
+      setDbKeyStatusKind('error')
+      return
+    }
+    setDbKey('')
+    setDbKeyStatus('已清除保存的密钥')
+    setDbKeyStatusKind('normal')
   }
 
   const loadContacts = async (): Promise<void> => {
@@ -146,16 +223,52 @@ function App(): React.ReactElement {
       <div className="login-modal">
         <div className="login-box">
           <h2>Enter WeChat DB Key</h2>
-          <input
-            type="password"
-            className="login-input"
-            value={dbKey}
-            onChange={(e) => setDbKey(e.target.value)}
-            placeholder="Key (e.g. 0x...)"
-          />
+          <div className="login-input-wrapper">
+            <input
+              type={showDbKey ? 'text' : 'password'}
+              className="login-input"
+              value={dbKey}
+              onChange={(e) => setDbKey(e.target.value)}
+              placeholder="Key (e.g. 0x...)"
+            />
+            <button
+              type="button"
+              className="login-input-toggle"
+              onClick={() => setShowDbKey(!showDbKey)}
+              title={showDbKey ? '隐藏密钥' : '显示密钥'}
+            >
+              {showDbKey ? '👁️' : '👁️‍🗨️'}
+            </button>
+          </div>
+          <button
+            className="login-btn login-btn-secondary"
+            onClick={handleAutoGetDbKey}
+            disabled={isFetchingDbKey}
+          >
+            {isFetchingDbKey ? '正在获取...' : '自动获取密钥'}
+          </button>
+          <button className="login-btn login-btn-secondary" onClick={handlePasteAndSaveDbKey}>
+            粘贴并安全保存
+          </button>
           <button className="login-btn" onClick={() => handleLogin()}>
             Connect
           </button>
+          <button className="login-clear-btn" onClick={handleClearSavedDbKey}>
+            清除已保存密钥
+          </button>
+          {dbKeyStatus && (
+            <div className={`login-key-status ${dbKeyStatusKind}`}>{dbKeyStatus}</div>
+          )}
+          {showMacKeyFaq && (
+            <a
+              className="login-key-help-link"
+              href={MAC_KEY_FAQ_URL}
+              target="_blank"
+              rel="noreferrer"
+            >
+              查看 macOS 获取密钥排障指引
+            </a>
+          )}
         </div>
       </div>
     )
