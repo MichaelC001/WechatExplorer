@@ -265,19 +265,22 @@ app.whenReady().then(() => {
         /<appmsg\b|<refermsg\b|&lt;appmsg\b|&lt;refermsg\b/i.test(content)
           ? 49
           : msgType
-      if ([3, 42, 47, 48, 49, 50].includes(inferredMsgType)) {
+      if ([3, 42, 47, 48, 49, 50, 10000, 10002].includes(inferredMsgType)) {
         try {
           const parsed =
             inferredMsgType === 47
               ? parseStickerMessageFromRow(msg, content)
               : parseMessageContent(content, inferredMsgType)
-          if (parsed.type !== 'unknown') {
+          if (parsed.type === 'system') {
+            content = parsed.content
+            contentData = parsed
+          } else if (parsed.type !== 'unknown') {
             content = ''
           }
           if (parsed.type === 'image') {
             const imageDatName = parseImageDatNameFromRow(msg)
             contentData = { ...parsed, datName: parsed.datName || imageDatName }
-          } else {
+          } else if (parsed.type !== 'system') {
             if (parsed.type === 'sticker' && !parsed.url && parsed.md5 && wcdb4Client) {
               parsed.url = wcdb4Client.resolveEmoticonCdnUrl(parsed.md5)
             }
@@ -313,7 +316,7 @@ app.whenReady().then(() => {
 
       return {
         id: msg.mesLocalID || Math.random().toString(),
-        from: isMine ? 'assistant' : 'user',
+        from: contentData?.type === 'system' ? 'system' : isMine ? 'assistant' : 'user',
         type: displayType,
         datetime: date.toLocaleString('zh-CN', { hour12: false }),
         content: content,
@@ -325,6 +328,36 @@ app.whenReady().then(() => {
         contentData: contentData
       }
     })
+  })
+
+  ipcMain.handle('db:getGroupSnapshot', (_, userMd5: string) => {
+    if (!wechatDb) return null
+    const wcdb4Client = wechatDb.getWcdb4Client()
+    if (!wcdb4Client) return null
+
+    const roomId = wcdb4Client.getUsernameByMd5(userMd5)
+    if (!roomId || !roomId.endsWith('@chatroom')) return null
+
+    const members = wcdb4Client
+      .getGroupMembers(roomId)
+      .filter((member) => member?.m_nsUsrName)
+      .map((member) => ({
+        wxid: member.m_nsUsrName,
+        nickname: member.nickname || '',
+        avatar: member.m_nsHeadImgUrl || ''
+      }))
+
+    console.log(
+      `[GroupSnapshot] roomId=${roomId} memberCount=${members.length} members=${members
+        .map((member) => `${member.nickname || member.wxid}(${member.wxid})`)
+        .join(', ')}`
+    )
+
+    return {
+      roomId,
+      memberCount: members.length,
+      members
+    }
   })
 
   ipcMain.handle('db:search', (_, keyword: string) => {

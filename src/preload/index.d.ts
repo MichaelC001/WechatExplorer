@@ -39,6 +39,11 @@ declare global {
       ) => Promise<boolean | { success: boolean; error?: string; monitoring?: boolean }>
       getContacts: (filter?: string) => Promise<Contact[]>
       getMessages: (userMd5: string, startTime?: number, endTime?: number) => Promise<Message[]>
+      getGroupSnapshot: (userMd5: string) => Promise<{
+        roomId: string
+        memberCount: number
+        members: { wxid: string; nickname: string; avatar: string }[]
+      } | null>
       search: (keyword: string) => Promise<string | null>
       aiChat: (
         messages: { role: string; content: string }[],

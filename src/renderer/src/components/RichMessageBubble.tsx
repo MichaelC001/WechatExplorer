@@ -22,6 +22,8 @@ export function RichMessageBubble({ contentData }: RichMessageBubbleProps): JSX.
       return <StickerBubble data={contentData} />
     case 'quote':
       return <QuoteBubble data={contentData} />
+    case 'system':
+      return <SystemBubble data={contentData} />
     case 'unknown':
       return (
         <div className="message-text">{(contentData as { raw?: string }).raw || '[未知消息]'}</div>
@@ -210,6 +212,10 @@ function QuoteBubble({ data }: { data: Extract<ParsedContent, { type: 'quote' }>
       {replyText && <div className="quote-reply">{replyText}</div>}
     </div>
   )
+}
+
+function SystemBubble({ data }: { data: Extract<ParsedContent, { type: 'system' }> }): JSX.Element {
+  return <div className="message-text">{data.content || '[系统消息]'}</div>
 }
 
 function getUrlHost(url?: string): string {

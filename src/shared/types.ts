@@ -66,7 +66,7 @@ type QuoteContent = {
   quotedSender?: string
   quotedType?: string
 }
-type SystemContent = { type: 'system'; content: string }
+type SystemContent = { type: 'system'; content: string; raw?: string }
 type UnknownContent = { type: 'unknown'; raw: string }
 
 export type ParsedContent =

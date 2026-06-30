@@ -304,6 +304,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       <div className="message-list wechat-message-list">
         {filteredMessages.map((msg) => {
           const isMine = msg.from === 'assistant'
+          const isSystem = msg.from === 'system' || msg.type === '系统消息'
           const displayName = isMine
             ? '我'
             : isGroupChat
@@ -312,7 +313,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           const avatarSrc = isMine ? msg.img : msg.img || contact.avatar
           const isVoice = msg.type === '语音'
           const isImage = msg.type === '图片'
-          const isRichMedia = ['名片', '位置', '分享消息', '通话', '表情包'].includes(msg.type)
+          const isRichMedia = ['名片', '位置', '分享消息', '通话', '表情包', '系统消息'].includes(
+            msg.type
+          )
+
+          if (isSystem) {
+            return (
+              <div key={msg.id} className="wechat-system-message-row">
+                <div className="wechat-system-message">{msg.content}</div>
+                <div className="wechat-system-message-meta">{msg.datetime}</div>
+              </div>
+            )
+          }
 
           return (
             <div key={msg.id} className={`wechat-message-row ${isMine ? 'mine' : 'other'}`}>

@@ -8,6 +8,7 @@ const api = {
   getContacts: (filter?: string) => ipcRenderer.invoke('db:getContacts', filter),
   getMessages: (userMd5: string, startTime?: number, endTime?: number) =>
     ipcRenderer.invoke('db:getMessages', userMd5, startTime, endTime),
+  getGroupSnapshot: (userMd5: string) => ipcRenderer.invoke('db:getGroupSnapshot', userMd5),
   search: (keyword: string) => ipcRenderer.invoke('db:search', keyword),
   aiChat: (
     messages: { role: string; content: string }[],

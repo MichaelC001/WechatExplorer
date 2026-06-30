@@ -41,7 +41,7 @@ type QuoteContent = {
   quotedSender?: string
   quotedType?: string
 }
-type SystemContent = { type: 'system'; content: string }
+type SystemContent = { type: 'system'; content: string; raw?: string }
 type UnknownContent = { type: 'unknown'; raw: string }
 
 export type ParsedContent =
@@ -79,9 +79,37 @@ export function parseMessageContent(content: string, messageType: number): Parse
       return parseVoipMessage(normalized)
     case 10000:
     case 10002:
-      return { type: 'system', content: normalized }
+      return parseSystemMessage(normalized)
     default:
       return { type: 'text', content: normalized }
+  }
+}
+
+function parseSystemMessage(content: string): ParsedContent {
+  const stripped = stripChatroomPrefix(content)
+  const decoded = decodeXmlEntities(stripped)
+  const delChatroomMemberText = extractDelChatroomMemberText(decoded)
+  if (delChatroomMemberText) {
+    return {
+      type: 'system',
+      content: normalizeSystemText(delChatroomMemberText),
+      raw: content
+    }
+  }
+  const plainText =
+    extractXmlNodeText(decoded, 'plain') ||
+    extractXmlNodeText(decoded, 'text') ||
+    extractXmlNodeText(decoded, 'title') ||
+    extractXmlValue(decoded, 'plain') ||
+    extractXmlValue(decoded, 'text') ||
+    extractXmlValue(decoded, 'title') ||
+    ''
+
+  const normalized = normalizeSystemText(plainText || fallbackSystemText(decoded))
+  return {
+    type: 'system',
+    content: normalized || '[系统消息]',
+    raw: content
   }
 }
 
@@ -356,6 +384,20 @@ function sanitizeQuotedContent(content: string): string {
   return decoded
 }
 
+function stripChatroomPrefix(content: string): string {
+  return String(content || '')
+    .replace(/^[0-9a-z_-]+@chatroom:\s*/i, '')
+    .replace(/^wxid_[^:\n]+:\s*/i, '')
+    .trim()
+}
+
+function normalizeSystemText(content: string): string {
+  return String(content || '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([,.;!?])/g, '$1')
+    .trim()
+}
+
 function parseVoipMessage(content: string): ParsedContent {
   const roomTypeStr = extractXmlValue(content, 'room_type')
   const msg = extractXmlValue(content, 'msg') || ''
@@ -414,6 +456,44 @@ function decodeXmlUrl(value: string): string {
   } catch {
     return normalized
   }
+}
+
+function decodeXmlEntities(value: string): string {
+  return String(value || '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
+function extractXmlNodeText(xml: string, tagName: string): string {
+  const match = new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i').exec(xml)
+  if (!match?.[1]) return ''
+  return normalizeSystemText(
+    decodeXmlEntities(
+      match[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/<[^>]+>/g, ' ')
+    )
+  )
+}
+
+function fallbackSystemText(xml: string): string {
+  return normalizeSystemText(
+    decodeXmlEntities(
+      String(xml || '')
+        .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+        .replace(/<[^>]+>/g, ' ')
+    )
+  )
+}
+
+function extractDelChatroomMemberText(xml: string): string {
+  if (!/<sysmsg[^>]+delchatroommember/i.test(xml)) return ''
+  const plainMatch = /<plain[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/plain>/i.exec(xml)
+  if (plainMatch?.[1]) return plainMatch[1].trim()
+  const textMatch = /<text[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/text>/i.exec(xml)
+  if (textMatch?.[1]) return textMatch[1].trim()
+  return ''
 }
 
 function normalizeMd5(value: unknown): string | undefined {

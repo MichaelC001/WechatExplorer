@@ -21,6 +21,67 @@ const areMessagesEquivalent = (left: Message[], right: Message[]): boolean => {
   return true
 }
 
+type GroupSnapshot = {
+  roomId: string
+  memberCount: number
+  members: { wxid: string; nickname: string; avatar: string }[]
+}
+
+const formatGroupMemberName = (member: GroupSnapshot['members'][number]): string =>
+  member.nickname || member.wxid
+
+const buildSyntheticGroupMessages = (
+  previous: GroupSnapshot | null,
+  next: GroupSnapshot | null,
+  referenceMessages: Message[]
+): Message[] => {
+  if (!previous || !next || previous.roomId !== next.roomId) return []
+
+  const previousMap = new Map(previous.members.map((member) => [member.wxid, member]))
+  const nextMap = new Map(next.members.map((member) => [member.wxid, member]))
+  const latestMessageTime = referenceMessages.reduce(
+    (max, message) => Math.max(max, message.createTime || 0),
+    0
+  )
+  const fallbackNow = Math.floor(Date.now() / 1000)
+  const events: Message[] = []
+
+  let offset = 1
+  for (const [wxid, member] of previousMap.entries()) {
+    if (nextMap.has(wxid)) continue
+    const name = formatGroupMemberName(member)
+    const eventTime = Math.max(latestMessageTime + offset, fallbackNow)
+    const eventDate = new Date(eventTime * 1000)
+    offset += 1
+    events.push({
+      id: `synthetic-leave:${next.roomId}:${wxid}:${eventTime}`,
+      from: 'system',
+      type: '系统消息',
+      datetime: eventDate.toLocaleString('zh-CN', { hour12: false }),
+      content: `${name} 退出了群聊`,
+      isSender: false,
+      createTime: eventTime
+    })
+  }
+
+  if (events.length) {
+    console.log(
+      `[GroupMonitor] synthetic leave detected roomId=${next.roomId} events=${events
+        .map((event) => event.content)
+        .join(' | ')}`
+    )
+  }
+
+  return events
+}
+
+const sortMessagesChronologically = (items: Message[]): Message[] =>
+  [...items].sort((left, right) => {
+    const timeDelta = (left.createTime || 0) - (right.createTime || 0)
+    if (timeDelta !== 0) return timeDelta
+    return getMessageIdentity(left).localeCompare(getMessageIdentity(right))
+  })
+
 function App(): React.ReactElement {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [dbKey, setDbKey] = useState(import.meta.env.VITE_DB_KEY || '')
@@ -36,6 +97,8 @@ function App(): React.ReactElement {
   const [showDbKey, setShowDbKey] = useState(false)
   const [showMacKeyFaq, setShowMacKeyFaq] = useState(false)
   const [isNativeMonitorActive, setIsNativeMonitorActive] = useState(false)
+  const currentGroupSnapshotRef = React.useRef<GroupSnapshot | null>(null)
+  const syntheticGroupMessagesRef = React.useRef<Record<string, Message[]>>({})
 
   React.useEffect(() => {
     let active = true
@@ -83,6 +146,41 @@ function App(): React.ReactElement {
       alert('Error connecting to database')
     }
   }
+
+  const logGroupSnapshot = React.useCallback(
+    async (contact: Contact | null, reason: string): Promise<GroupSnapshot | null> => {
+      if (!contact || contact.type !== 'group') return null
+      try {
+        const snapshot = (await window.api.getGroupSnapshot(contact.md5)) as GroupSnapshot | null
+        if (!snapshot) {
+          console.log(`[GroupSnapshot] reason=${reason} name=${contact.m_nsNickName} snapshot=null`)
+          return null
+        }
+        console.log(
+          `[GroupSnapshot] reason=${reason} name=${contact.m_nsNickName} roomId=${snapshot.roomId} memberCount=${snapshot.memberCount}`,
+          snapshot.members
+        )
+        return snapshot
+      } catch (error) {
+        console.warn(`[GroupSnapshot] reason=${reason} name=${contact.m_nsNickName} failed:`, error)
+        return null
+      }
+    },
+    []
+  )
+
+  const mergeSyntheticMessages = React.useCallback(
+    (contact: Contact | null, baseMessages: Message[], roomId?: string): Message[] => {
+      if (!contact || contact.type !== 'group') return baseMessages
+      const resolvedRoomId = roomId || currentGroupSnapshotRef.current?.roomId
+      if (!resolvedRoomId) return baseMessages
+      const synthetic = syntheticGroupMessagesRef.current[resolvedRoomId] || []
+      return synthetic.length
+        ? sortMessagesChronologically([...baseMessages, ...synthetic])
+        : baseMessages
+    },
+    []
+  )
 
   const handleAutoGetDbKey = async (): Promise<void> => {
     if (isFetchingDbKey) return
@@ -175,14 +273,18 @@ function App(): React.ReactElement {
     setSelectedContact(contact)
     const { startTime, endTime } = getDateRangeParams(dateRange)
     const msgs = await window.api.getMessages(contact.md5, startTime, endTime)
-    setMessages(msgs)
+    const snapshot = await logGroupSnapshot(contact, 'select-contact')
+    currentGroupSnapshotRef.current = snapshot
+    setMessages(mergeSyntheticMessages(contact, msgs, snapshot?.roomId))
   }
 
   const handleDateRangeChange = (range: string): void => {
     setDateRange(range)
     if (selectedContact) {
       const { startTime, endTime } = getDateRangeParams(range)
-      window.api.getMessages(selectedContact.md5, startTime, endTime).then(setMessages)
+      window.api.getMessages(selectedContact.md5, startTime, endTime).then((nextMessages) => {
+        setMessages(mergeSyntheticMessages(selectedContact, nextMessages))
+      })
     }
   }
 
@@ -201,9 +303,45 @@ function App(): React.ReactElement {
           range.startTime,
           range.endTime
         )
+        const latestSnapshot = await logGroupSnapshot(selectedContact, 'wcdb-change')
+        const syntheticEvents = buildSyntheticGroupMessages(
+          currentGroupSnapshotRef.current,
+          latestSnapshot,
+          latestMessages
+        )
+        if (latestSnapshot) {
+          currentGroupSnapshotRef.current = latestSnapshot
+          if (syntheticEvents.length) {
+            const existing = syntheticGroupMessagesRef.current[latestSnapshot.roomId] || []
+            const existingIds = new Set(existing.map((message) => message.id))
+            const appended = syntheticEvents.filter((message) => !existingIds.has(message.id))
+            if (appended.length) {
+              syntheticGroupMessagesRef.current[latestSnapshot.roomId] = [...existing, ...appended]
+              console.log(
+                `[GroupMonitor] merged synthetic messages roomId=${latestSnapshot.roomId} total=${syntheticGroupMessagesRef.current[latestSnapshot.roomId].length}`
+              )
+              if (!disposed) {
+                setMessages((current) =>
+                  sortMessagesChronologically([
+                    ...current,
+                    ...appended.filter(
+                      (message) =>
+                        !current.some((existingMessage) => existingMessage.id === message.id)
+                    )
+                  ])
+                )
+              }
+            }
+          }
+        }
+        const nextMessages = mergeSyntheticMessages(
+          selectedContact,
+          latestMessages,
+          latestSnapshot?.roomId
+        )
         if (!disposed) {
           setMessages((current) =>
-            areMessagesEquivalent(current, latestMessages) ? current : latestMessages
+            areMessagesEquivalent(current, nextMessages) ? current : nextMessages
           )
         }
       } catch (error) {
@@ -224,7 +362,14 @@ function App(): React.ReactElement {
       if (refreshTimer) window.clearTimeout(refreshTimer)
       unsubscribe()
     }
-  }, [dateRange, isAuthenticated, isNativeMonitorActive, selectedContact])
+  }, [
+    dateRange,
+    isAuthenticated,
+    isNativeMonitorActive,
+    selectedContact,
+    logGroupSnapshot,
+    mergeSyntheticMessages
+  ])
 
   const handleSearchContacts = (keyword: string): void => {
     if (!keyword) {
