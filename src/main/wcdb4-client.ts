@@ -3,6 +3,7 @@ import path from 'path'
 import os from 'os'
 import crypto from 'crypto'
 import { createRequire } from 'module'
+import { createConnection, Socket } from 'net'
 
 export interface Wcdb4Session {
   username: string
@@ -132,6 +133,15 @@ export class Wcdb4Client {
   private wcdbGetEmoticonCdnUrl:
     | ((handle: number, dbPath: string, md5: string, outUrl: WcdbVoidOut) => number)
     | null = null
+  private wcdbStartMonitorPipe: (() => number) | null = null
+  private wcdbStopMonitorPipe: (() => void) | null = null
+  private wcdbGetMonitorPipeName: ((outName: WcdbVoidOut) => number) | null = null
+  private monitorPipeClient: Socket | null = null
+  private monitorCallback: ((type: string, json: string) => void) | null = null
+  private monitorConnectTimer: ReturnType<typeof setTimeout> | null = null
+  private monitorReconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private monitorPipePath = ''
+  private monitorStarted = false
 
   constructor(key: string, accountRoot?: string) {
     this.key = key.replace(/^0x/i, '').trim()
@@ -225,6 +235,7 @@ export class Wcdb4Client {
   }
 
   close(): void {
+    this.stopMonitor()
     if (!this.initialized || !this.wcdbShutdown) return
 
     try {
@@ -239,6 +250,142 @@ export class Wcdb4Client {
     this.displayNameCache.clear()
     this.avatarCache.clear()
     this.groupNicknameCache.clear()
+  }
+
+  startMonitor(callback: (type: string, json: string) => void): boolean {
+    if (!this.wcdbStartMonitorPipe || !this.wcdbGetMonitorPipeName || !this.koffi) return false
+
+    this.stopMonitor()
+    this.monitorCallback = callback
+
+    try {
+      const startResult = this.wcdbStartMonitorPipe()
+      if (startResult !== 0) {
+        this.monitorCallback = null
+        console.warn(`[WCDB4] wcdb_start_monitor_pipe 失败，错误码: ${startResult}`)
+        return false
+      }
+      this.monitorStarted = true
+
+      const outName: WcdbVoidOut = [null]
+      const nameResult = this.wcdbGetMonitorPipeName(outName)
+      if (nameResult !== 0 || !outName[0]) {
+        console.warn(`[WCDB4] wcdb_get_monitor_pipe_name 失败，错误码: ${nameResult}`)
+        this.stopMonitor()
+        return false
+      }
+
+      try {
+        this.monitorPipePath = this.koffi.decode(outName[0], 'char', -1).trim()
+      } finally {
+        this.wcdbFreeString?.(outName[0])
+      }
+
+      if (!this.monitorPipePath) {
+        this.stopMonitor()
+        return false
+      }
+
+      this.connectMonitorPipe()
+      return true
+    } catch (error) {
+      console.warn('[WCDB4] 启动数据库监听失败:', error)
+      this.stopMonitor()
+      return false
+    }
+  }
+
+  stopMonitor(): void {
+    this.monitorCallback = null
+
+    if (this.monitorConnectTimer) {
+      clearTimeout(this.monitorConnectTimer)
+      this.monitorConnectTimer = null
+    }
+    if (this.monitorReconnectTimer) {
+      clearTimeout(this.monitorReconnectTimer)
+      this.monitorReconnectTimer = null
+    }
+    if (this.monitorPipeClient) {
+      this.monitorPipeClient.destroy()
+      this.monitorPipeClient = null
+    }
+    if (this.monitorStarted && this.wcdbStopMonitorPipe) {
+      try {
+        this.wcdbStopMonitorPipe()
+      } catch {
+        // Native monitor cleanup is best-effort during reconnect or shutdown.
+      }
+    }
+
+    this.monitorStarted = false
+    this.monitorPipePath = ''
+  }
+
+  private connectMonitorPipe(): void {
+    if (!this.monitorCallback || !this.monitorPipePath || this.monitorConnectTimer) return
+
+    this.monitorConnectTimer = setTimeout(() => {
+      this.monitorConnectTimer = null
+      if (!this.monitorCallback || !this.monitorPipePath || this.monitorPipeClient) return
+
+      const socket = createConnection(this.monitorPipePath)
+      this.monitorPipeClient = socket
+      let buffer = ''
+
+      socket.on('data', (data) => {
+        const normalizedChunk = data
+          .toString('utf8')
+          .split('\0')
+          .join('\n')
+          .replace(/}\s*{/g, '}\n{')
+        buffer += normalizedChunk
+
+        const lines = buffer.split(/\r?\n/)
+        buffer = lines.pop() || ''
+        for (const line of lines) this.emitMonitorPayload(line)
+
+        const tail = buffer.trim()
+        if (tail.startsWith('{') && tail.endsWith('}')) {
+          try {
+            JSON.parse(tail)
+            this.emitMonitorPayload(tail)
+            buffer = ''
+          } catch {
+            // Keep the partial payload until the next socket chunk arrives.
+          }
+        }
+      })
+
+      socket.on('error', (error) => {
+        console.warn('[WCDB4] 数据库监听管道异常:', error.message)
+      })
+
+      socket.on('close', () => {
+        if (this.monitorPipeClient === socket) this.monitorPipeClient = null
+        this.scheduleMonitorReconnect()
+      })
+    }, 100)
+  }
+
+  private emitMonitorPayload(rawPayload: string): void {
+    const payload = rawPayload.trim()
+    if (!payload || !this.monitorCallback) return
+
+    try {
+      const parsed = JSON.parse(payload) as { action?: string }
+      this.monitorCallback(parsed.action || 'update', payload)
+    } catch {
+      this.monitorCallback('update', payload)
+    }
+  }
+
+  private scheduleMonitorReconnect(): void {
+    if (this.monitorReconnectTimer || !this.monitorCallback || !this.monitorPipePath) return
+    this.monitorReconnectTimer = setTimeout(() => {
+      this.monitorReconnectTimer = null
+      this.connectMonitorPipe()
+    }, 3000)
   }
 
   getSessions(): Wcdb4Session[] {
@@ -768,6 +915,19 @@ export class Wcdb4Client {
       console.warn('[WCDB4] wcdb_get_emoticon_cdn_url symbol unavailable')
       this.wcdbGetEmoticonCdnUrl = null
     }
+
+    try {
+      this.wcdbStartMonitorPipe = lib.func('int32 wcdb_start_monitor_pipe()') as () => number
+      this.wcdbStopMonitorPipe = lib.func('void wcdb_stop_monitor_pipe()') as () => void
+      this.wcdbGetMonitorPipeName = lib.func(
+        'int32 wcdb_get_monitor_pipe_name(_Out_ void** outName)'
+      ) as (outName: WcdbVoidOut) => number
+    } catch {
+      console.warn('[WCDB4] monitor pipe symbols unavailable')
+      this.wcdbStartMonitorPipe = null
+      this.wcdbStopMonitorPipe = null
+      this.wcdbGetMonitorPipeName = null
+    }
   }
 
   private initProtection(lib: KoffiLibrary, libDir: string): void {
@@ -974,7 +1134,7 @@ export class Wcdb4Client {
     ])
 
     return {
-      mesLocalID: localId || `${createTime}-${crypto.randomUUID()}`,
+      mesLocalID: localId || `${createTime}-${this.md5(JSON.stringify(row))}`,
       mesDes: isSend ? 0 : 1,
       messageType: messageType || '1',
       msgCreateTime: String(createTime),

@@ -28,6 +28,14 @@ const api = {
   autoGetDbKey: () => ipcRenderer.invoke('key:autoGetDbKey'),
   pasteAndSaveDbKey: () => ipcRenderer.invoke('key:pasteAndSaveDbKey'),
   clearSavedDbKey: () => ipcRenderer.invoke('key:clearSavedDbKey'),
+  onWcdbChange: (callback: (payload: { type: string; json: string }) => void) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      payload: { type: string; json: string }
+    ): void => callback(payload)
+    ipcRenderer.on('wcdb-change', listener)
+    return () => ipcRenderer.removeListener('wcdb-change', listener)
+  },
   onDbKeyStatus: (callback: (payload: { message: string }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: { message: string }): void =>
       callback(payload)

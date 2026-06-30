@@ -364,6 +364,11 @@ export class WechatDb {
     return this.wcdb4Client
   }
 
+  public close(): void {
+    this.wcdb4Client?.close()
+    this.wcdb4Client = null
+  }
+
   public getUserMessages(userMd5: string, startTime?: number, endTime?: number): WechatMessage[] {
     if (this.wcdb4Client) {
       const username = this.chatMd5ToUsername.get(userMd5)

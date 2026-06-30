@@ -4,6 +4,22 @@ import ChatWindow from './components/ChatWindow'
 import { Contact, Message } from '../../shared/types'
 
 const MAC_KEY_FAQ_URL = 'https://github.com/hicccc77/WeFlow/blob/main/docs/MAC-KEY-FAQ.md'
+const MESSAGE_MONITOR_DEBOUNCE_MS = 250
+
+const getMessageIdentity = (message: Message): string => {
+  if (message.localId) return `local:${message.localId}`
+  if (message.id) return `id:${message.id}`
+  return `${message.createTime || 0}:${message.from}:${message.type}:${message.content}`
+}
+
+const areMessagesEquivalent = (left: Message[], right: Message[]): boolean => {
+  if (left === right) return true
+  if (left.length !== right.length) return false
+  for (let index = 0; index < left.length; index += 1) {
+    if (getMessageIdentity(left[index]) !== getMessageIdentity(right[index])) return false
+  }
+  return true
+}
 
 function App(): React.ReactElement {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -19,6 +35,7 @@ function App(): React.ReactElement {
   const [dbKeyStatusKind, setDbKeyStatusKind] = useState<'normal' | 'success' | 'error'>('normal')
   const [showDbKey, setShowDbKey] = useState(false)
   const [showMacKeyFaq, setShowMacKeyFaq] = useState(false)
+  const [isNativeMonitorActive, setIsNativeMonitorActive] = useState(false)
 
   React.useEffect(() => {
     let active = true
@@ -54,6 +71,7 @@ function App(): React.ReactElement {
       const result = await window.api.initDb(keyToUse)
       const success = typeof result === 'boolean' ? result : result.success
       if (success) {
+        setIsNativeMonitorActive(typeof result !== 'boolean' && result.monitoring === true)
         setIsAuthenticated(true)
         loadContacts()
       } else {
@@ -162,18 +180,51 @@ function App(): React.ReactElement {
 
   const handleDateRangeChange = (range: string): void => {
     setDateRange(range)
-    // 如果选择了联系人，则使用新范围重新加载消息
     if (selectedContact) {
-      // 需要调用 handleSelectContact，但它需要一个联系人对象。
-      // 由于状态更新是异步的，可能需要使用状态中的当前联系人，
-      // 此函数内部 'selectedContact' 可从闭包中获得。
-      // 但是，需要确保 'dateRange' 已更新。
-      // 实际上，就在这里使用新范围手动触发获取。
-
       const { startTime, endTime } = getDateRangeParams(range)
       window.api.getMessages(selectedContact.md5, startTime, endTime).then(setMessages)
     }
   }
+
+  React.useEffect(() => {
+    if (!isAuthenticated || !selectedContact || !isNativeMonitorActive) return
+
+    let disposed = false
+    let refreshTimer: number | null = null
+    const contactMd5 = selectedContact.md5
+
+    const refreshCurrentConversation = async (): Promise<void> => {
+      try {
+        const range = getDateRangeParams(dateRange)
+        const latestMessages = await window.api.getMessages(
+          contactMd5,
+          range.startTime,
+          range.endTime
+        )
+        if (!disposed) {
+          setMessages((current) =>
+            areMessagesEquivalent(current, latestMessages) ? current : latestMessages
+          )
+        }
+      } catch (error) {
+        console.warn('[MessageMonitor] 刷新当前会话失败:', error)
+      }
+    }
+
+    const unsubscribe = window.api.onWcdbChange(() => {
+      if (refreshTimer) window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null
+        void refreshCurrentConversation()
+      }, MESSAGE_MONITOR_DEBOUNCE_MS)
+    })
+
+    return () => {
+      disposed = true
+      if (refreshTimer) window.clearTimeout(refreshTimer)
+      unsubscribe()
+    }
+  }, [dateRange, isAuthenticated, isNativeMonitorActive, selectedContact])
 
   const handleSearchContacts = (keyword: string): void => {
     if (!keyword) {

@@ -109,14 +109,22 @@ app.whenReady().then(() => {
     try {
       const trimmedKey = String(key || '').trim()
       console.log(`db:init build=${BUILD_MARK} keyLength=${trimmedKey.length}`)
-      wechatDb = new WechatDb(key)
-      const wcdb4Client = wechatDb.getWcdb4Client()
+      const nextWechatDb = new WechatDb(key)
+      wechatDb?.close()
+      wechatDb = nextWechatDb
+      const wcdb4Client = nextWechatDb.getWcdb4Client()
+      let monitoring = false
       if (wcdb4Client) {
         voiceService = new VoiceService(wcdb4Client)
         stickerService = new StickerService(wcdb4Client)
+        monitoring = wcdb4Client.startMonitor((type, json) => {
+          for (const window of BrowserWindow.getAllWindows()) {
+            if (!window.isDestroyed()) window.webContents.send('wcdb-change', { type, json })
+          }
+        })
       }
       imageDecryptService = null
-      return { success: true }
+      return { success: true, monitoring }
     } catch (error) {
       console.error('Failed to init DB:', error)
       return { success: false, error: error instanceof Error ? error.message : String(error) }
@@ -452,4 +460,9 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('before-quit', () => {
+  wechatDb?.close()
+  wechatDb = null
 })

@@ -34,7 +34,9 @@ declare global {
   interface Window {
     electron: ElectronAPI
     api: {
-      initDb: (key: string) => Promise<boolean | { success: boolean; error?: string }>
+      initDb: (
+        key: string
+      ) => Promise<boolean | { success: boolean; error?: string; monitoring?: boolean }>
       getContacts: (filter?: string) => Promise<Contact[]>
       getMessages: (userMd5: string, startTime?: number, endTime?: number) => Promise<Message[]>
       search: (keyword: string) => Promise<string | null>
@@ -72,6 +74,7 @@ declare global {
       }>
       pasteAndSaveDbKey: () => Promise<{ success: boolean; key?: string; error?: string }>
       clearSavedDbKey: () => Promise<{ success: boolean; error?: string }>
+      onWcdbChange: (callback: (payload: { type: string; json: string }) => void) => () => void
       onDbKeyStatus: (callback: (payload: { message: string }) => void) => () => void
     }
   }
