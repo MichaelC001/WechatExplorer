@@ -233,12 +233,15 @@ body {
 
 .wechat-message-list {
   padding: 18px 28px;
-  gap: 14px;
   background-color: #edf1f2;
   background-image:
     radial-gradient(circle at 20px 20px, rgba(0, 0, 0, 0.025) 1px, transparent 1px),
     radial-gradient(circle at 80px 70px, rgba(0, 0, 0, 0.02) 1px, transparent 1px);
   background-size: 120px 120px;
+}
+
+.wechat-message-row {
+  margin-bottom: 14px;
 }
 
 .wechat-message-row {
@@ -322,7 +325,6 @@ body {
   line-height: 1.55;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
   word-break: break-word;
-  white-space: pre-wrap;
 }
 
 .wechat-message-row.mine .message-bubble {
@@ -890,9 +892,43 @@ body {
 }
 
 .image-preview-modal {
-  background: transparent;
-  box-shadow: none;
-  padding: 0;
+  width: min(520px, 92vw);
+  max-height: 88vh;
+  background: #f7f8fa;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+  padding: 16px;
+  overflow: hidden;
+}
+
+.report-preview-frame {
+  border: 1px solid #d8dde3;
+  border-radius: 10px;
+  background: #eef1f4;
+  padding: 12px;
+}
+
+.report-preview-scroller {
+  max-height: calc(88vh - 120px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+}
+
+.report-preview-image {
+  display: block;
+  width: min(430px, 100%);
+  height: auto;
+  margin: 0 auto;
+  border-radius: 8px;
+  border: 1px solid #ccd3d9;
+  background: #fff;
+}
+
+.report-preview-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .image-viewer-overlay {

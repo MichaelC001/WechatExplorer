@@ -347,12 +347,6 @@ app.whenReady().then(() => {
         avatar: member.m_nsHeadImgUrl || ''
       }))
 
-    console.log(
-      `[GroupSnapshot] roomId=${roomId} memberCount=${members.length} members=${members
-        .map((member) => `${member.nickname || member.wxid}(${member.wxid})`)
-        .join(', ')}`
-    )
-
     return {
       roomId,
       memberCount: members.length,

@@ -153,13 +153,8 @@ function App(): React.ReactElement {
       try {
         const snapshot = (await window.api.getGroupSnapshot(contact.md5)) as GroupSnapshot | null
         if (!snapshot) {
-          console.log(`[GroupSnapshot] reason=${reason} name=${contact.m_nsNickName} snapshot=null`)
           return null
         }
-        console.log(
-          `[GroupSnapshot] reason=${reason} name=${contact.m_nsNickName} roomId=${snapshot.roomId} memberCount=${snapshot.memberCount}`,
-          snapshot.members
-        )
         return snapshot
       } catch (error) {
         console.warn(`[GroupSnapshot] reason=${reason} name=${contact.m_nsNickName} failed:`, error)

@@ -432,19 +432,16 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       {generatedImage && (
         <div className="modal-overlay" onClick={() => setGeneratedImage(null)}>
           <div className="modal-content image-preview-modal" onClick={(e) => e.stopPropagation()}>
-            <img
-              src={generatedImage}
-              alt="Generated Summary"
-              style={{ maxWidth: '100%', maxHeight: '80vh', border: '1px solid #ccc' }}
-            />
-            <div
-              style={{
-                marginTop: '10px',
-                display: 'flex',
-                // justifyContent: 'flex-end',
-                gap: '10px'
-              }}
-            >
+            <div className="report-preview-frame">
+              <div className="report-preview-scroller">
+                <img
+                  src={generatedImage}
+                  alt="Generated Summary"
+                  className="report-preview-image"
+                />
+              </div>
+            </div>
+            <div className="report-preview-actions">
               <button
                 onClick={handleCopyImage}
                 style={{
