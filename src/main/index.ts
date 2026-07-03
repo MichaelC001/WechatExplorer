@@ -113,16 +113,13 @@ app.whenReady().then(() => {
       wechatDb?.close()
       wechatDb = nextWechatDb
       const wcdb4Client = nextWechatDb.getWcdb4Client()
-      let monitoring = false
-      if (wcdb4Client) {
-        voiceService = new VoiceService(wcdb4Client)
-        stickerService = new StickerService(wcdb4Client)
-        monitoring = wcdb4Client.startMonitor((type, json) => {
-          for (const window of BrowserWindow.getAllWindows()) {
-            if (!window.isDestroyed()) window.webContents.send('wcdb-change', { type, json })
-          }
-        })
-      }
+      voiceService = new VoiceService(wcdb4Client)
+      stickerService = new StickerService(wcdb4Client)
+      const monitoring = wcdb4Client.startMonitor((type, json) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (!window.isDestroyed()) window.webContents.send('wcdb-change', { type, json })
+        }
+      })
       imageDecryptService = null
       return { success: true, monitoring }
     } catch (error) {
@@ -206,14 +203,13 @@ app.whenReady().then(() => {
   ipcMain.handle('db:getMessages', (_, userMd5: string, startTime?: number, endTime?: number) => {
     if (!wechatDb) return []
     const wcdb4Client = wechatDb.getWcdb4Client()
-    const username = wcdb4Client?.getUsernameByMd5(userMd5)
+    const username = wcdb4Client.getUsernameByMd5(userMd5)
     const rawMessages = wechatDb.getUserMessages(userMd5, startTime, endTime)
     const groupMembers = wechatDb.getGroupMembersForChat(userMd5)
     const myAvatar = wechatDb.getMyAvatarUrl()
-    const myGroupNickname =
-      username?.endsWith('@chatroom') && wcdb4Client
-        ? wcdb4Client.getMyGroupNickname(username)
-        : undefined
+    const myGroupNickname = username?.endsWith('@chatroom')
+      ? wcdb4Client.getMyGroupNickname(username)
+      : undefined
 
     return rawMessages.map((msg: WechatMessage) => {
       const rawMsgType = parseInt(msg.messageType)
@@ -281,7 +277,7 @@ app.whenReady().then(() => {
             const imageDatName = parseImageDatNameFromRow(msg)
             contentData = { ...parsed, datName: parsed.datName || imageDatName }
           } else if (parsed.type !== 'system') {
-            if (parsed.type === 'sticker' && !parsed.url && parsed.md5 && wcdb4Client) {
+            if (parsed.type === 'sticker' && !parsed.url && parsed.md5) {
               parsed.url = wcdb4Client.resolveEmoticonCdnUrl(parsed.md5)
             }
             contentData = parsed
@@ -301,7 +297,7 @@ app.whenReady().then(() => {
       ) {
         const parsed = parseStickerMessageFromRow(msg, content)
         if (parsed.type === 'sticker') {
-          if (!parsed.url && parsed.md5 && wcdb4Client) {
+          if (!parsed.url && parsed.md5) {
             parsed.url = wcdb4Client.resolveEmoticonCdnUrl(parsed.md5)
           }
           content = ''
@@ -333,7 +329,6 @@ app.whenReady().then(() => {
   ipcMain.handle('db:getGroupSnapshot', (_, userMd5: string) => {
     if (!wechatDb) return null
     const wcdb4Client = wechatDb.getWcdb4Client()
-    if (!wcdb4Client) return null
 
     const roomId = wcdb4Client.getUsernameByMd5(userMd5)
     if (!roomId || !roomId.endsWith('@chatroom')) return null

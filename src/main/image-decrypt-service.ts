@@ -241,15 +241,11 @@ export class ImageDecryptService {
       )
 
       let decrypted: Buffer
-      if (version === 0) {
-        console.log('[ImageDecrypt] using V3 (XOR only)')
-        decrypted = this.decryptDatV3(datPath)
-      } else if (version === 1) {
+      if (version === 1) {
         console.log('[ImageDecrypt] using V1 (default AES key)')
         const key = Buffer.from(this.defaultV1AesKey, 'ascii')
         decrypted = this.decryptDatV4(datPath, key)
-      } else {
-        // version === 2
+      } else if (version === 2) {
         console.log('[ImageDecrypt] using V2 (user AES key)')
         if (!this.aesKey) {
           console.log('[ImageDecrypt] no AES key configured')
@@ -257,6 +253,9 @@ export class ImageDecryptService {
         }
         const key = Buffer.from(this.aesKey, 'ascii').slice(0, 16)
         decrypted = this.decryptDatV4(datPath, key)
+      } else {
+        console.log('[ImageDecrypt] unsupported dat version:', version)
+        return null
       }
 
       return decrypted
@@ -308,18 +307,6 @@ export class ImageDecryptService {
       return 2
     }
     return 0
-  }
-
-  /**
-   * V3 解密 - 仅 XOR
-   */
-  private decryptDatV3(inputPath: string): Buffer {
-    const data = readFileSync(inputPath)
-    const out = Buffer.alloc(data.length)
-    for (let i = 0; i < data.length; i += 1) {
-      out[i] = data[i] ^ this.xorKey
-    }
-    return out
   }
 
   /**
