@@ -90,5 +90,5 @@ MAC系统 获取微信聊天记录 AI一键生成群聊总结
 ## 🔗 参考
 
 - [WechatMessageExplorer](https://github.com/svcvit/WechatMessageExplorer)
-- [WechatExplorer](https://github.com/hicccc77/WechatExplorer)
+- [WeFlow](https://github.com/hicccc77/WeFlow)
 - [chatlog](https://github.com/sjzar/chatlog)
