@@ -42,7 +42,17 @@ const api = {
       callback(payload)
     ipcRenderer.on('key:dbKeyStatus', listener)
     return () => ipcRenderer.removeListener('key:dbKeyStatus', listener)
-  }
+  },
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
+  getSelf: () => ipcRenderer.invoke('settings:getSelf'),
+  testConnection: (key: string, accountRoot?: string) =>
+    ipcRenderer.invoke('db:testConnection', key, accountRoot),
+  reopenWithRoot: (accountRoot: string) => ipcRenderer.invoke('db:reopenWithRoot', accountRoot),
+  apiStatus: () => ipcRenderer.invoke('api:getStatus'),
+  apiStart: (host?: string, port?: number) => ipcRenderer.invoke('api:start', host, port),
+  apiStop: () => ipcRenderer.invoke('api:stop'),
+  apiToggle: (enabled: boolean) => ipcRenderer.invoke('api:toggle', enabled)
 }
 
 if (process.contextIsolated) {

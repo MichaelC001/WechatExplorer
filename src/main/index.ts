@@ -1,60 +1,46 @@
-import { app, shell, BrowserWindow, ipcMain, nativeImage, clipboard } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, nativeImage, clipboard, Menu, Tray } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { WechatDb, Contact, WechatMessage } from './wechat-db'
+import { WechatDb } from './wechat-db'
 import { VoiceService } from './voice-service'
 import { StickerService } from './sticker-service'
-import {
-  parseImageDatNameFromRow,
-  parseMessageContent,
-  parseStickerMessageFromRow
-} from './message-parser'
+import { parseMessageContent } from './message-parser'
 import { ImageDecryptService } from './image-decrypt-service'
 import { exportGroupReport } from './group-report-service'
 import { GroupReportExportRequest } from '../shared/group-report'
 import { DatabaseKeyStore } from './database-key-store'
 import { KeyServiceMac } from './key-service-mac'
+import * as chat from './services/chat-service'
+import {
+  apiServer
+} from './http-server'
+import {
+  loadSettings,
+  saveSettings,
+  getSettingsPath,
+  AppSettings
+} from './services/settings-store'
+import { installSafeConsole } from './safe-log'
 
-let wechatDb: WechatDb | null = null
+// electron-vite can close the child's stdout/stderr after spawning Electron.
+// Plain console.error then throws EPIPE on a closed pipe and crashes the IPC
+// handler. Wrap console.* before any other module logs anything.
+installSafeConsole()
+
 let voiceService: VoiceService | null = null
 let imageDecryptService: ImageDecryptService | null = null
 let stickerService: StickerService | null = null
 const databaseKeyStore = new DatabaseKeyStore()
 const keyServiceMac = new KeyServiceMac()
-const BUILD_MARK = 'wechat4-open-account-continues-after-init-1000'
+let tray: Tray | null = null
+const BUILD_MARK = 'wechat4-local-http-api-2026-07-03'
+const TRAY_MODE =
+  process.argv.includes('--tray') || (process.env['WXE_TRAY'] || '').toString() === '1'
 
 // WechatExplorer's WCDB native library runs InitProtection before wcdb_init.
 // In dev, matching the host app name avoids failing the native protection gate.
 app.setName('WechatExplorer')
-
-const MSG_TYPE_DICT: Record<number, string> = {
-  1: '普通文本',
-  3: '图片',
-  34: '语音',
-  42: '名片',
-  43: '视频',
-  47: '表情包',
-  48: '位置',
-  49: '分享消息',
-  50: '通话',
-  10000: '系统消息'
-}
-
-function normalizeMsgType(value: string | number | undefined): number {
-  const raw = String(value ?? '').trim()
-  if (!raw) return 0
-
-  try {
-    const parsed = BigInt(raw)
-    const low32 = Number(parsed & 0xffffffffn)
-    return low32 || Number(parsed)
-  } catch {
-    const parsed = Number(raw)
-    if (!Number.isFinite(parsed)) return 0
-    return parsed > 0xffffffff ? parsed >>> 0 : parsed
-  }
-}
 
 function createWindow(): void {
   // 创建浏览器窗口
@@ -90,7 +76,7 @@ function createWindow(): void {
 
 // 当 Electron 完成初始化并准备好创建浏览器窗口时，将调用此方法
 // 某些 API 只能在此事件发生后使用
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   console.log(`WechatExplorer main build: ${BUILD_MARK}`)
   // 为窗口设置应用程序用户模型 ID
   electronApp.setAppUserModelId('com.electron')
@@ -110,8 +96,7 @@ app.whenReady().then(() => {
       const trimmedKey = String(key || '').trim()
       console.log(`db:init build=${BUILD_MARK} keyLength=${trimmedKey.length}`)
       const nextWechatDb = new WechatDb(key)
-      wechatDb?.close()
-      wechatDb = nextWechatDb
+      chat.setChatDb(nextWechatDb)
       const wcdb4Client = nextWechatDb.getWcdb4Client()
       voiceService = new VoiceService(wcdb4Client)
       stickerService = new StickerService(wcdb4Client)
@@ -151,208 +136,15 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('db:getContacts', (_, filter?: string) => {
-    if (!wechatDb) return []
+  ipcMain.handle('db:getContacts', (_, filter?: string) => chat.listContacts(filter))
 
-    const contacts: Contact[] = []
-    const groupContacts = wechatDb.getAllGroupContacts()
-    const userList = wechatDb.getUserList(filter)
-    const existingMd5s = new Set<string>()
+  ipcMain.handle('db:getMessages', (_, userMd5: string, startTime?: number, endTime?: number) =>
+    chat.listMessages(userMd5, startTime, endTime)
+  )
 
-    // 1. 处理普通联系人
-    for (const user of userList) {
-      const md5 = wechatDb.md5(user.m_nsUsrName)
-      const isGroup = user.m_nsUsrName.endsWith('@chatroom')
-      existingMd5s.add(md5)
-      contacts.push({
-        m_nsUsrName: user.m_nsUsrName,
-        m_nsNickName: user.nickname || '未知用户',
-        md5: md5,
-        type: isGroup ? 'group' : 'user',
-        avatar: typeof user.avatar === 'string' ? user.avatar : undefined
-      })
-    }
+  ipcMain.handle('db:getGroupSnapshot', (_, userMd5: string) => chat.getGroupSnapshot(userMd5))
 
-    // 2. 处理聊天表
-    const chatTables = wechatDb.getAllChatTables()
-    for (const table of chatTables) {
-      if (!table.name.startsWith('Chat_')) continue
-      const md5 = table.name.substring(5)
-
-      if (!existingMd5s.has(md5)) {
-        if (groupContacts[md5]) {
-          contacts.push({
-            m_nsUsrName: `Group_${md5}`,
-            m_nsNickName: groupContacts[md5],
-            md5: md5,
-            type: 'group'
-          })
-        } else {
-          contacts.push({
-            m_nsUsrName: `Unknown_${md5}`,
-            m_nsNickName: `Chat_${md5}`,
-            md5: md5,
-            type: 'user'
-          })
-        }
-      }
-    }
-    return contacts
-  })
-
-  ipcMain.handle('db:getMessages', (_, userMd5: string, startTime?: number, endTime?: number) => {
-    if (!wechatDb) return []
-    const wcdb4Client = wechatDb.getWcdb4Client()
-    const username = wcdb4Client.getUsernameByMd5(userMd5)
-    const rawMessages = wechatDb.getUserMessages(userMd5, startTime, endTime)
-    const groupMembers = wechatDb.getGroupMembersForChat(userMd5)
-    const myAvatar = wechatDb.getMyAvatarUrl()
-    const myGroupNickname = username?.endsWith('@chatroom')
-      ? wcdb4Client.getMyGroupNickname(username)
-      : undefined
-
-    return rawMessages.map((msg: WechatMessage) => {
-      const rawMsgType = parseInt(msg.messageType)
-      const msgType = normalizeMsgType(msg.messageType)
-      const createTime = parseInt(msg.msgCreateTime)
-      const date = new Date(createTime * 1000)
-      const isMine = msg.mesDes !== 1
-      const localId = parseInt(msg.mesLocalID) || 0
-
-      let content = msg.msgContent
-      let img = ''
-      let name = ''
-      if (isMine) {
-        if (myAvatar) img = myAvatar
-        name = myGroupNickname || (typeof msg.senderNickname === 'string' ? msg.senderNickname : '')
-      } else {
-        if (typeof msg.senderAvatar === 'string') img = msg.senderAvatar
-        if (typeof msg.senderNickname === 'string') name = msg.senderNickname
-      }
-      // 检查内容是否以 wxid 开头并包含冒号
-      // 示例: wxid_xxxx:\nContent 或 wxid_xxxx:Content
-      if (content && typeof content === 'string') {
-        const colonIndex = content.indexOf(':')
-        if (colonIndex > 0) {
-          const potentialWxid = content.substring(0, colonIndex)
-          if (potentialWxid.startsWith('wxid_')) {
-            // 尝试获取头像
-            if (wechatDb) {
-              const member = wechatDb.getGroupMember(potentialWxid)
-              if (member) {
-                img = member.m_nsHeadImgUrl
-              }
-            }
-
-            if (groupMembers[potentialWxid]) {
-              const nickname = groupMembers[potentialWxid]
-              name = nickname
-              content = content.substring(colonIndex + 1) // +1 to skip the colon
-            }
-          }
-        }
-      }
-
-      // 解析富媒体消息内容
-      let contentData: ReturnType<typeof parseMessageContent> | undefined = undefined
-      let displayType = MSG_TYPE_DICT[msgType] || msg.messageType
-      const inferredMsgType =
-        typeof content === 'string' &&
-        /<appmsg\b|<refermsg\b|&lt;appmsg\b|&lt;refermsg\b/i.test(content)
-          ? 49
-          : msgType
-      if ([3, 42, 47, 48, 49, 50, 10000, 10002].includes(inferredMsgType)) {
-        try {
-          const parsed =
-            inferredMsgType === 47
-              ? parseStickerMessageFromRow(msg, content)
-              : parseMessageContent(content, inferredMsgType)
-          if (parsed.type === 'system') {
-            content = parsed.content
-            contentData = parsed
-          } else if (parsed.type !== 'unknown') {
-            content = ''
-          }
-          if (parsed.type === 'image') {
-            const imageDatName = parseImageDatNameFromRow(msg)
-            contentData = { ...parsed, datName: parsed.datName || imageDatName }
-          } else if (parsed.type !== 'system') {
-            if (parsed.type === 'sticker' && !parsed.url && parsed.md5) {
-              parsed.url = wcdb4Client.resolveEmoticonCdnUrl(parsed.md5)
-            }
-            contentData = parsed
-          }
-          if (inferredMsgType !== msgType || rawMsgType !== msgType) {
-            displayType = MSG_TYPE_DICT[inferredMsgType] || displayType
-          }
-        } catch {
-          // ignore parse errors
-        }
-      }
-
-      if (
-        !contentData &&
-        typeof content === 'string' &&
-        /^[0-9a-fA-F]{64,}$/.test(content.trim())
-      ) {
-        const parsed = parseStickerMessageFromRow(msg, content)
-        if (parsed.type === 'sticker') {
-          if (!parsed.url && parsed.md5) {
-            parsed.url = wcdb4Client.resolveEmoticonCdnUrl(parsed.md5)
-          }
-          content = ''
-          contentData = parsed
-          displayType = '表情包'
-        }
-      }
-
-      if (msgType === 34) {
-        content = '[语音消息]'
-      }
-
-      return {
-        id: msg.mesLocalID || Math.random().toString(),
-        from: contentData?.type === 'system' ? 'system' : isMine ? 'assistant' : 'user',
-        type: displayType,
-        datetime: date.toLocaleString('zh-CN', { hour12: false }),
-        content: content,
-        img: img,
-        name: name,
-        sessionId: username,
-        localId: localId,
-        createTime: createTime,
-        contentData: contentData
-      }
-    })
-  })
-
-  ipcMain.handle('db:getGroupSnapshot', (_, userMd5: string) => {
-    if (!wechatDb) return null
-    const wcdb4Client = wechatDb.getWcdb4Client()
-
-    const roomId = wcdb4Client.getUsernameByMd5(userMd5)
-    if (!roomId || !roomId.endsWith('@chatroom')) return null
-
-    const members = wcdb4Client
-      .getGroupMembers(roomId)
-      .filter((member) => member?.m_nsUsrName)
-      .map((member) => ({
-        wxid: member.m_nsUsrName,
-        nickname: member.nickname || '',
-        avatar: member.m_nsHeadImgUrl || ''
-      }))
-
-    return {
-      roomId,
-      memberCount: members.length,
-      members
-    }
-  })
-
-  ipcMain.handle('db:search', (_, keyword: string) => {
-    if (!wechatDb) return null
-    return wechatDb.searchAllMessages(keyword)
-  })
+  ipcMain.handle('db:search', (_, keyword: string) => chat.searchMessages(keyword))
 
   ipcMain.handle(
     'ai:chat',
@@ -441,7 +233,7 @@ app.whenReady().then(() => {
         if (!aesKey) {
           return { success: false, error: '未配置图片解密密钥' }
         }
-        imageDecryptService = new ImageDecryptService(xorKey, aesKey, wechatDb?.getWcdb4Client())
+        imageDecryptService = new ImageDecryptService(xorKey, aesKey, chat.getChatDb()?.getWcdb4Client())
       }
 
       const imageDatName = typeof imageDatNameOrThumb === 'string' ? imageDatNameOrThumb : undefined
@@ -461,12 +253,74 @@ app.whenReady().then(() => {
 
   ipcMain.handle('db:getSticker', async (_, cdnUrl?: string, md5?: string) => {
     if (!stickerService) {
-      stickerService = new StickerService(wechatDb?.getWcdb4Client())
+      stickerService = new StickerService(chat.getChatDb()?.getWcdb4Client())
     }
     return stickerService.resolveSticker(cdnUrl, md5)
   })
 
+  // -------- Settings & API service --------
+
+  ipcMain.handle('settings:get', () => ({
+    settings: loadSettings(),
+    settingsPath: getSettingsPath()
+  }))
+
+  ipcMain.handle('settings:set', (_, patch: Partial<AppSettings>) => {
+    const merged = saveSettings({ ...loadSettings(), ...patch })
+    return { settings: merged, settingsPath: getSettingsPath() }
+  })
+
+  ipcMain.handle('settings:getSelf', () => {
+    const info = chat.getSelfAccountInfo()
+    if (!info) return { ready: false }
+    return { ready: true, info }
+  })
+
+  ipcMain.handle('db:testConnection', (_, key: string, accountRoot?: string) => {
+    return chat.testConnection(key, accountRoot)
+  })
+
+  ipcMain.handle('db:reopenWithRoot', (_, accountRoot: string) => {
+    const ok = chat.reopenWithRoot(accountRoot)
+    if (!ok) return { success: false, error: '数据库未初始化或重新打开失败' }
+    const info = chat.getSelfAccountInfo()
+    return { success: true, info }
+  })
+
+  ipcMain.handle('api:getStatus', () => apiServer.getState())
+
+  ipcMain.handle('api:start', async (_, host?: string, port?: number) => {
+    const settings = loadSettings()
+    const target = {
+      host: host || settings.apiHost,
+      port: port || settings.apiPort
+    }
+    if (host || port) saveSettings({ ...settings, ...target })
+    return apiServer.start(target.host, target.port)
+  })
+
+  ipcMain.handle('api:stop', async () => apiServer.stop())
+
+  ipcMain.handle('api:toggle', async (_, enabled: boolean) => {
+    const settings = saveSettings({ ...loadSettings(), apiEnabled: enabled })
+    if (enabled) {
+      return apiServer.start(settings.apiHost, settings.apiPort)
+    }
+    return apiServer.stop()
+  })
+
   createWindow()
+
+  // 启动本地 HTTP API(根据 settings.apiEnabled 控制)
+  const settings = loadSettings()
+  if (settings.apiEnabled) {
+    await apiServer.start(settings.apiHost, settings.apiPort)
+  }
+
+  if (TRAY_MODE) {
+    app.dock?.hide()
+    setupTray()
+  }
 
   app.on('activate', function () {
     // 在 macOS 上，当点击 dock 图标且没有其他窗口打开时，
@@ -479,12 +333,65 @@ app.whenReady().then(() => {
 // 应用程序及其菜单栏通常会保持活动状态，直到用户
 // 显式使用 Cmd + Q 退出。
 app.on('window-all-closed', () => {
+  if (TRAY_MODE) return
   if (process.platform !== 'darwin') {
     app.quit()
   }
 })
 
-app.on('before-quit', () => {
-  wechatDb?.close()
-  wechatDb = null
+app.on('before-quit', async () => {
+  chat.setChatDb(null)
+  await apiServer.stop().catch(() => undefined)
+  if (tray) {
+    tray.destroy()
+    tray = null
+  }
 })
+
+function showMainWindow(): void {
+  if (TRAY_MODE) app.dock?.show().catch(() => undefined)
+  const wins = BrowserWindow.getAllWindows()
+  if (wins.length === 0) {
+    createWindow()
+    return
+  }
+  const win = wins[0]
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+}
+
+function buildTrayMenu(): Menu {
+  return Menu.buildFromTemplate([
+    {
+      label: '打开主窗口',
+      click: () => showMainWindow()
+    },
+    {
+      label: 'API 状态',
+      click: () => showMainWindow()
+    },
+    { type: 'separator' },
+    {
+      label: '退出 WechatExplorer',
+      click: () => {
+        tray?.destroy()
+        tray = null
+        app.quit()
+      }
+    }
+  ])
+}
+
+function setupTray(): void {
+  if (tray) return
+  try {
+    const image = nativeImage.createFromPath(join(__dirname, '../../resources/icon.png'))
+    tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image)
+    tray.setToolTip('WechatExplorer')
+    tray.setContextMenu(buildTrayMenu())
+    tray.on('click', () => showMainWindow())
+  } catch (error) {
+    console.warn('[Tray] Failed to create tray:', error)
+  }
+}

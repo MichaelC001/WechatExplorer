@@ -81,6 +81,67 @@ declare global {
       clearSavedDbKey: () => Promise<{ success: boolean; error?: string }>
       onWcdbChange: (callback: (payload: { type: string; json: string }) => void) => () => void
       onDbKeyStatus: (callback: (payload: { message: string }) => void) => () => void
+      getSettings: () => Promise<{
+        settings: {
+          dbRoot: string
+          apiEnabled: boolean
+          apiHost: string
+          apiPort: number
+        }
+        settingsPath: string
+      }>
+      setSettings: (patch: Partial<{
+        dbRoot: string
+        apiEnabled: boolean
+        apiHost: string
+        apiPort: number
+      }>) => Promise<{
+        settings: {
+          dbRoot: string
+          apiEnabled: boolean
+          apiHost: string
+          apiPort: number
+        }
+        settingsPath: string
+      }>
+      getSelf: () => Promise<
+        | {
+            ready: true
+            info: { wxid: string; nickname: string; avatar?: string; accountRoot: string }
+          }
+        | { ready: false }
+      >
+      testConnection: (
+        key: string,
+        accountRoot?: string
+      ) => Promise<{
+        success: boolean
+        error?: string
+        accountRoot?: string
+        wxid?: string
+      }>
+      reopenWithRoot: (accountRoot: string) => Promise<{
+        success: boolean
+        error?: string
+        info?: { wxid: string; nickname: string; avatar?: string; accountRoot: string }
+      }>
+      apiStatus: () => Promise<{
+        running: boolean
+        host: string
+        port: number
+        error?: string
+      }>
+      apiStart: (
+        host?: string,
+        port?: number
+      ) => Promise<{ running: boolean; host: string; port: number; error?: string }>
+      apiStop: () => Promise<{ running: boolean; host: string; port: number; error?: string }>
+      apiToggle: (enabled: boolean) => Promise<{
+        running: boolean
+        host: string
+        port: number
+        error?: string
+      }>
     }
   }
 }

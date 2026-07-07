@@ -145,7 +145,9 @@ export class Wcdb4Client {
 
   constructor(key: string, accountRoot?: string) {
     this.key = key.replace(/^0x/i, '').trim()
-    this.accountRoot = accountRoot || Wcdb4Client.findLatestAccountRoot()
+    this.accountRoot = accountRoot
+      ? Wcdb4Client.resolveAccountRoot(accountRoot)
+      : Wcdb4Client.findLatestAccountRoot()
     this.wxid = Wcdb4Client.cleanAccountDirName(path.basename(this.accountRoot))
     this.dbStoragePath = path.join(this.accountRoot, 'db_storage')
     this.sessionDbPath = this.findSessionDb()
@@ -153,6 +155,37 @@ export class Wcdb4Client {
     if (!this.sessionDbPath) {
       throw new Error(`未找到微信 4.0 session.db: ${this.dbStoragePath}`)
     }
+  }
+
+  static resolveAccountRoot(accountRoot: string): string {
+    const target = (accountRoot || '').trim().replace(/\/+$/, '')
+    if (!target) {
+      throw new Error('微信 4.0 账号目录不能为空')
+    }
+    if (fs.existsSync(path.join(target, 'db_storage'))) {
+      return target
+    }
+    if (!fs.existsSync(target)) {
+      throw new Error(`未找到微信 4.0 数据目录: ${target}`)
+    }
+    const candidates = fs
+      .readdirSync(target)
+      .map((name) => path.join(target, name))
+      .filter((candidate) => {
+        try {
+          return (
+            fs.statSync(candidate).isDirectory() &&
+            fs.existsSync(path.join(candidate, 'db_storage'))
+          )
+        } catch {
+          return false
+        }
+      })
+      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
+    if (!candidates[0]) {
+      throw new Error(`未找到包含 db_storage 的微信 4.0 账号目录: ${target}`)
+    }
+    return candidates[0]
   }
 
   static findLatestAccountRoot(): string {
@@ -712,6 +745,10 @@ export class Wcdb4Client {
 
   getAccountRoot(): string {
     return this.accountRoot
+  }
+
+  getKey(): string {
+    return this.key
   }
 
   resolveImageHardlink(md5: string): Wcdb4ImageHardlink | null {
@@ -1390,7 +1427,7 @@ export class Wcdb4Client {
     return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
   }
 
-  private getMyUsernameCandidates(): string[] {
+  getMyUsernameCandidates(): string[] {
     const rawAccountName = path.basename(this.accountRoot)
     return this.uniq([this.wxid, rawAccountName, Wcdb4Client.cleanAccountDirName(rawAccountName)])
   }

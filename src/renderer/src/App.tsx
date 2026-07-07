@@ -1,7 +1,15 @@
 import React, { useState } from 'react'
 import { Sidebar } from './components/Sidebar'
 import ChatWindow from './components/ChatWindow'
+import { SettingsPanel } from './components/SettingsPanel'
 import { Contact, Message } from '../../shared/types'
+
+interface SelfInfo {
+  wxid: string
+  nickname: string
+  avatar?: string
+  accountRoot: string
+}
 
 const MAC_KEY_FAQ_URL = 'https://github.com/hicccc77/WeFlow/blob/main/docs/MAC-KEY-FAQ.md'
 const MESSAGE_MONITOR_DEBOUNCE_MS = 250
@@ -96,6 +104,8 @@ function App(): React.ReactElement {
   const [dbKeyStatusKind, setDbKeyStatusKind] = useState<'normal' | 'success' | 'error'>('normal')
   const [showDbKey, setShowDbKey] = useState(false)
   const [showMacKeyFaq, setShowMacKeyFaq] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [selfInfo, setSelfInfo] = useState<SelfInfo | null>(null)
   const [isNativeMonitorActive, setIsNativeMonitorActive] = useState(false)
   const currentGroupSnapshotRef = React.useRef<GroupSnapshot | null>(null)
   const syntheticGroupMessagesRef = React.useRef<Record<string, Message[]>>({})
@@ -137,6 +147,7 @@ function App(): React.ReactElement {
         setIsNativeMonitorActive(typeof result !== 'boolean' && result.monitoring === true)
         setIsAuthenticated(true)
         loadContacts()
+        void refreshSelfInfo()
       } else {
         const error = typeof result === 'boolean' ? '' : result.error
         alert(`Failed to open database.${error ? `\n\n${error}` : '\nCheck your key.'}`)
@@ -144,6 +155,20 @@ function App(): React.ReactElement {
     } catch (error) {
       console.error(error)
       alert('Error connecting to database')
+    }
+  }
+
+  const refreshSelfInfo = async (): Promise<void> => {
+    try {
+      const result = await window.api.getSelf()
+      if (result.ready) {
+        setSelfInfo(result.info)
+      } else {
+        setSelfInfo(null)
+      }
+    } catch (error) {
+      console.warn('[SelfInfo] 加载失败:', error)
+      setSelfInfo(null)
     }
   }
 
@@ -476,6 +501,9 @@ function App(): React.ReactElement {
         width={sidebarWidth}
         dateRange={dateRange}
         onDateRangeChange={handleDateRangeChange}
+        selfInfo={selfInfo}
+        dbReady={isAuthenticated}
+        onOpenSettings={() => setShowSettings(true)}
       />
       <div className="resizer" onMouseDown={startResizing} />
       <ChatWindow
@@ -485,6 +513,18 @@ function App(): React.ReactElement {
         contentFilter={contentFilter}
         onRefresh={() => selectedContact && handleSelectContact(selectedContact)}
         onRefreshData={loadContacts}
+      />
+      <SettingsPanel
+        open={showSettings}
+        selfInfo={selfInfo}
+        dbReady={isAuthenticated}
+        dbKey={dbKey}
+        onClose={() => setShowSettings(false)}
+        onDbKeyChange={setDbKey}
+        onDbRootChanged={() => {
+          void refreshSelfInfo()
+          void loadContacts()
+        }}
       />
     </div>
   )
