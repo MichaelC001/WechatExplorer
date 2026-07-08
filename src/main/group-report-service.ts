@@ -5,8 +5,10 @@ import path from 'path'
 import {
   GroupReportExportRequest,
   GroupReportExportResult,
+  GroupReportMetadata,
   ReportHeat
 } from '../shared/group-report'
+import { resolveMd5, getGroupSnapshot } from './services/chat-service'
 
 const TEMPLATE_NAME = 'mobile_daily_report.html'
 
@@ -48,7 +50,7 @@ const imageMimeType = (contentType: string | null, source: string): string => {
 
 const embedAvatar = async (source: string | undefined, name: string): Promise<string> => {
   if (!source) return fallbackAvatar(name)
-  if (/^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i.test(source)) return source
+  if (/^data:image\/[a-z0-9.+/-]+;base64,[a-z0-9+/=]+$/i.test(source)) return source
 
   try {
     if (/^https?:\/\//i.test(source)) {
@@ -82,6 +84,51 @@ const templatePath = (): string => {
   const found = candidates.find((candidate) => fs.existsSync(candidate))
   if (!found) throw new Error(`日报模板不存在: ${candidates.join(' | ')}`)
   return found
+}
+
+/**
+ * 从群成员快照反推真头像,填进 metadata.avatars。
+ * - 没传 talker → 跳过(向后兼容)
+ * - talker 解析失败 / snapshot 拿不到 → 200 + warn,继续走 fallback
+ * - 客户端传的 avatars[name](非空)优先;否则从 snapshot 的 m_nsHeadImgUrl 补
+ * - 同名取首条(P2 风险:群里两人同名)
+ */
+const enrichAvatarsFromGroup = async (metadata: GroupReportMetadata): Promise<void> => {
+  if (!metadata.talker) return
+
+  const resolved = resolveMd5(metadata.talker)
+  if (!resolved) {
+    metadata.warnings = metadata.warnings ?? []
+    metadata.warnings.push(`enrich skipped: talker "${metadata.talker}" not found`)
+    return
+  }
+
+  const snapshot = getGroupSnapshot(resolved.md5)
+  if (!snapshot) {
+    metadata.warnings = metadata.warnings ?? []
+    metadata.warnings.push(
+      `enrich skipped: group snapshot not available for "${metadata.talker}"`
+    )
+    return
+  }
+
+  const index = new Map<string, string>()
+  for (const member of snapshot.members) {
+    if (member.nickname && member.avatar && !index.has(member.nickname)) {
+      index.set(member.nickname, member.avatar)
+    }
+  }
+
+  metadata.avatars = metadata.avatars ?? {}
+  for (const [name, url] of index) {
+    if (metadata.avatars[name]) continue
+    metadata.avatars[name] = url
+  }
+
+  metadata.warnings = metadata.warnings ?? []
+  metadata.warnings.push(
+    `enriched ${index.size} member avatars from snapshot (${snapshot.memberCount} members)`
+  )
 }
 
 const heatClass = (heat: ReportHeat): string => {
@@ -208,7 +255,7 @@ const renderReportHtml = async (request: GroupReportExportRequest): Promise<stri
     HERO_AVATARS: heroAvatars,
     MESSAGE_COUNT: String(metadata.messageCount),
     ACTIVE_USERS: String(metadata.activeUsers),
-    TIME_SPAN: escapeHtml(metadata.timeSpan),
+    TIME_SPAN: escapeHtml(metadata.timeSpan || ''),
     TOPIC_COUNT: String(report.topics.length),
     TOPIC_CARDS: topicCards,
     RESOURCES_EMPTY_CLASS: report.resources.length ? '' : 'empty-section',
@@ -280,6 +327,9 @@ export const exportGroupReport = async (
   request: GroupReportExportRequest
 ): Promise<GroupReportExportResult> => {
   try {
+    // === enrich 在 render 之前:从群成员快照反推真头像 ===
+    await enrichAvatarsFromGroup(request.metadata)
+
     const outputDir = path.join(os.homedir(), 'Documents', '微信聊天记录')
     await fs.ensureDir(outputDir)
     const baseName = `${sanitizeFileName(request.metadata.groupName)}日报_${request.metadata.reportDate}_可视化长图`
@@ -288,7 +338,13 @@ export const exportGroupReport = async (
     const html = await renderReportHtml(request)
     await fs.writeFile(htmlPath, html, 'utf8')
     const imageDataUrl = await captureFullPage(htmlPath, pngPath)
-    return { success: true, htmlPath, pngPath, imageDataUrl }
+    return {
+      success: true,
+      htmlPath,
+      pngPath,
+      imageDataUrl,
+      warnings: request.metadata.warnings?.length ? request.metadata.warnings : undefined
+    }
   } catch (error) {
     console.error('[GroupReport] export failed:', error)
     return { success: false, error: error instanceof Error ? error.message : String(error) }

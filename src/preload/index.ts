@@ -28,6 +28,7 @@ const api = {
   getSavedDbKey: () => ipcRenderer.invoke('key:getSavedDbKey'),
   autoGetDbKey: () => ipcRenderer.invoke('key:autoGetDbKey'),
   pasteAndSaveDbKey: () => ipcRenderer.invoke('key:pasteAndSaveDbKey'),
+  saveDbKey: (key: string) => ipcRenderer.invoke('key:saveDbKey', key),
   clearSavedDbKey: () => ipcRenderer.invoke('key:clearSavedDbKey'),
   onWcdbChange: (callback: (payload: { type: string; json: string }) => void) => {
     const listener = (

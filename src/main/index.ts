@@ -120,6 +120,8 @@ app.whenReady().then(async () => {
     return databaseKeyStore.save(clipboardKey)
   })
 
+  ipcMain.handle('key:saveDbKey', async (_, key: string) => databaseKeyStore.save(String(key || '')))
+
   ipcMain.handle('key:clearSavedDbKey', async () => databaseKeyStore.clear())
 
   ipcMain.handle('key:autoGetDbKey', async (event) => {

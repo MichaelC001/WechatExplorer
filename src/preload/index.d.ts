@@ -78,6 +78,7 @@ declare global {
         warning?: string
       }>
       pasteAndSaveDbKey: () => Promise<{ success: boolean; key?: string; error?: string }>
+      saveDbKey: (key: string) => Promise<{ success: boolean; key?: string; error?: string }>
       clearSavedDbKey: () => Promise<{ success: boolean; error?: string }>
       onWcdbChange: (callback: (payload: { type: string; json: string }) => void) => () => void
       onDbKeyStatus: (callback: (payload: { message: string }) => void) => () => void
