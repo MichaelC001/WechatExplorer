@@ -16,17 +16,35 @@ export interface DatabaseKeyResult {
 
 export class KeyServiceMac {
   private getHelperPath(): string {
-    const candidates = app.isPackaged
-      ? [
-          path.join(process.resourcesPath, 'resources', 'xkey_helper'),
-          path.join(process.resourcesPath, 'xkey_helper')
-        ]
-      : [
-          path.join(process.cwd(), 'resources', 'xkey_helper'),
-          path.join(app.getAppPath(), 'resources', 'xkey_helper')
-        ]
+    // 多 candidate fallback:覆盖 extraResources、asarUnpack、dev 三种场景
+    // (extraResources → Contents/Resources/resources/;asarUnpack 同路径;dev → cwd 或 app.getAppPath)
+    const candidates = [
+      // 1) extraResources 标准位置(electron-builder.yml 配的就是这个)
+      path.join(process.resourcesPath, 'resources', 'xkey_helper'),
+      // 2) process.resourcesPath 直接(防止 extraResources 没复制成功)
+      path.join(process.resourcesPath, 'xkey_helper'),
+      // 3) asarUnpack 路径(如果在 asar 内的 resources/ 被解包到 app.asar.unpacked)
+      path.join(app.getAppPath(), 'app.asar.unpacked', 'resources', 'xkey_helper'),
+      // 4) dev 模式 + 打包后某些版本 app.getAppPath() 也指向 .app 根目录
+      path.join(app.getAppPath(), 'resources', 'xkey_helper'),
+      // 5) dev 模式:cwd
+      path.join(process.cwd(), 'resources', 'xkey_helper')
+    ].filter((p, idx, arr) => arr.indexOf(p) === idx) // 去重
+
+    // 诊断:即使命中也打 log,方便排查"装了但找不到"的问题(translocation / quarantine)
+    const statusList = candidates.map((candidate) => ({
+      path: candidate,
+      exists: fs.existsSync(candidate)
+    }))
+    console.log('[KeyServiceMac] xkey_helper candidates:', JSON.stringify(statusList))
     const helperPath = candidates.find((candidate) => fs.existsSync(candidate))
-    if (!helperPath) throw new Error('找不到 xkey_helper')
+    if (!helperPath) {
+      throw new Error(
+        `找不到 xkey_helper(尝试 ${candidates.length} 个路径;` +
+          ` app.isPackaged=${app.isPackaged} resourcesPath=${process.resourcesPath} ` +
+          ` appPath=${app.getAppPath()} cwd=${process.cwd()})`
+      )
+    }
     return helperPath
   }
 
