@@ -76,6 +76,13 @@ export interface GroupReportMetadata {
   footerNote: string
   heroParticipants: string[]
   avatars: Record<string, string | undefined>
+  // === 新增(可选,向后兼容) ===
+  /** 群昵称 / wxid / md5,服务端用来反推真头像(从 getGroupSnapshot) */
+  talker?: string
+  /** 预留,与 /api/v1/chatlog 的 time 参数同格式 */
+  timeRange?: string
+  /** 服务端写回,告知 client enrich 失败/部分缺失 */
+  warnings?: string[]
 }
 
 export interface GroupReportExportRequest {
@@ -88,5 +95,6 @@ export interface GroupReportExportResult {
   htmlPath?: string
   pngPath?: string
   imageDataUrl?: string
+  warnings?: string[]
   error?: string
 }

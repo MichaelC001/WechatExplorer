@@ -34,9 +34,9 @@ export class WechatDb {
   private wcdb4Client: Wcdb4Client
   private chatMd5ToUsername = new Map<string, string>()
 
-  constructor(rawKey: string) {
+  constructor(rawKey: string, accountRoot?: string) {
     console.log(`Initializing WechatDb with key length: ${rawKey.trim().length}`)
-    const client = new Wcdb4Client(rawKey)
+    const client = new Wcdb4Client(rawKey, accountRoot)
     client.open()
     this.wcdb4Client = client
     for (const table of client.getChatTables()) {

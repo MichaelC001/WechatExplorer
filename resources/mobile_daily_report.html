@@ -44,6 +44,11 @@
         align-items: center;
         justify-content: space-between;
         gap: 14px;
+        min-width: 0;
+      }
+      .hero-top > div:first-child {
+        min-width: 0;
+        flex: 1 1 auto;
       }
       .hero h1 {
         font-size: 23px;
@@ -82,11 +87,15 @@
         border-radius: 12px;
         padding: 10px 6px;
         text-align: center;
+        min-width: 0;
+        overflow: hidden;
       }
       .stat b {
         display: block;
         font-size: 18px;
         color: #07a352;
+        white-space: nowrap;
+        line-height: 1.25;
       }
       .stat span {
         font-size: 11px;
@@ -420,7 +429,7 @@
         <div class="stats">
           <div class="stat"><b>{{MESSAGE_COUNT}}</b><span>消息数</span></div>
           <div class="stat"><b>{{ACTIVE_USERS}}</b><span>活跃人数</span></div>
-          <div class="stat"><b>{{TIME_SPAN}}</b><span>时间跨度</span></div>
+          <div class="stat"><b>{{TIME_SPAN}}</b><span>持续时长</span></div>
           <div class="stat"><b>{{TOPIC_COUNT}}</b><span>主要话题</span></div>
         </div>
       </header>

@@ -1,7 +1,15 @@
 import React, { useState } from 'react'
 import { Sidebar } from './components/Sidebar'
 import ChatWindow from './components/ChatWindow'
+import { SettingsPanel } from './components/SettingsPanel'
 import { Contact, Message } from '../../shared/types'
+
+interface SelfInfo {
+  wxid: string
+  nickname: string
+  avatar?: string
+  accountRoot: string
+}
 
 const MAC_KEY_FAQ_URL = 'https://github.com/hicccc77/WeFlow/blob/main/docs/MAC-KEY-FAQ.md'
 const MESSAGE_MONITOR_DEBOUNCE_MS = 250
@@ -96,20 +104,87 @@ function App(): React.ReactElement {
   const [dbKeyStatusKind, setDbKeyStatusKind] = useState<'normal' | 'success' | 'error'>('normal')
   const [showDbKey, setShowDbKey] = useState(false)
   const [showMacKeyFaq, setShowMacKeyFaq] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [selfInfo, setSelfInfo] = useState<SelfInfo | null>(null)
   const [isNativeMonitorActive, setIsNativeMonitorActive] = useState(false)
+  const [bootState, setBootState] = useState<'loading' | 'connecting' | 'login'>('loading')
+  const [autoConnectSource, setAutoConnectSource] = useState<'env' | 'saved' | null>(null)
   const currentGroupSnapshotRef = React.useRef<GroupSnapshot | null>(null)
   const syntheticGroupMessagesRef = React.useRef<Record<string, Message[]>>({})
 
+  const refreshSelfInfo = async (): Promise<void> => {
+    try {
+      const result = await window.api.getSelf()
+      if (result.ready) {
+        setSelfInfo(result.info)
+      } else {
+        setSelfInfo(null)
+      }
+    } catch (error) {
+      console.warn('[SelfInfo] 加载失败:', error)
+      setSelfInfo(null)
+    }
+  }
+
+  const loadContacts = async (): Promise<void> => {
+    const list = await window.api.getContacts()
+    setContacts(list)
+    setFilteredContacts(list)
+  }
+
   React.useEffect(() => {
     let active = true
-    void window.api.getSavedDbKey().then((result) => {
-      if (!active) return
-      if (result.success && result.key) {
-        setDbKey(result.key)
-        setDbKeyStatus('已加载安全保存的密钥')
-        setDbKeyStatusKind('success')
+    const attemptAutoConnect = async (): Promise<void> => {
+      // 优先级 1:构建期环境变量 VITE_DB_KEY(本地开发/打包时硬编码的密钥)
+      const envKey = String(import.meta.env.VITE_DB_KEY || '').trim()
+      // 优先级 2:上一次保存到 safeStorage 的密钥
+      let savedKey = ''
+      if (!envKey) {
+        const result = await window.api.getSavedDbKey()
+        if (result.success && result.key) savedKey = result.key
       }
-    })
+      const key = envKey || savedKey
+      if (!key) {
+        if (active) setBootState('login')
+        return
+      }
+      if (active) {
+        setBootState('connecting')
+        setDbKey(key)
+        setAutoConnectSource(envKey ? 'env' : 'saved')
+        setDbKeyStatus(
+          envKey ? '检测到环境变量中的密钥,正在自动连接...' : '已加载安全保存的密钥,正在自动连接...'
+        )
+        setDbKeyStatusKind('normal')
+      }
+      try {
+        const result = await window.api.initDb(key)
+        if (!active) return
+        const success = typeof result === 'boolean' ? result : result.success
+        if (success) {
+          setIsNativeMonitorActive(typeof result !== 'boolean' && result.monitoring === true)
+          setIsAuthenticated(true)
+          setDbKeyStatus('已自动连接')
+          setDbKeyStatusKind('success')
+          await loadContacts()
+          void refreshSelfInfo()
+        } else {
+          const error = typeof result === 'boolean' ? '' : result.error
+          setDbKeyStatus(
+            `自动连接失败,请重新输入${error ? `: ${error}` : ''}`
+          )
+          setDbKeyStatusKind('error')
+          setBootState('login')
+        }
+      } catch (error) {
+        if (!active) return
+        const message = error instanceof Error ? error.message : String(error)
+        setDbKeyStatus(`自动连接失败: ${message}`)
+        setDbKeyStatusKind('error')
+        setBootState('login')
+      }
+    }
+    void attemptAutoConnect()
     const unsubscribe = window.api.onDbKeyStatus(({ message }) => {
       if (!active) return
       setDbKeyStatus(message)
@@ -136,7 +211,10 @@ function App(): React.ReactElement {
       if (success) {
         setIsNativeMonitorActive(typeof result !== 'boolean' && result.monitoring === true)
         setIsAuthenticated(true)
+        // 手动输入也持久化,下次启动可自动连接(参考 WeFlow)
+        void window.api.saveDbKey(keyToUse).catch(() => undefined)
         loadContacts()
+        void refreshSelfInfo()
       } else {
         const error = typeof result === 'boolean' ? '' : result.error
         alert(`Failed to open database.${error ? `\n\n${error}` : '\nCheck your key.'}`)
@@ -224,12 +302,6 @@ function App(): React.ReactElement {
     setDbKey('')
     setDbKeyStatus('已清除保存的密钥')
     setDbKeyStatusKind('normal')
-  }
-
-  const loadContacts = async (): Promise<void> => {
-    const list = await window.api.getContacts()
-    setContacts(list)
-    setFilteredContacts(list)
   }
 
   const getDateRangeParams = (
@@ -409,6 +481,24 @@ function App(): React.ReactElement {
     }
   }, [resize, stopResizing])
 
+  if (!isAuthenticated && bootState !== 'login') {
+    return (
+      <div className="boot-splash">
+        <div className="boot-splash-spinner" aria-hidden />
+        <div className="boot-splash-title">
+          {bootState === 'connecting' ? '正在自动连接数据库...' : '正在准备...'}
+        </div>
+        <div className="boot-splash-subtitle">
+          {bootState === 'connecting'
+            ? autoConnectSource === 'env'
+              ? '检测到环境变量中的密钥'
+              : '使用上次安全保存的密钥'
+            : 'WechatExplorer'}
+        </div>
+      </div>
+    )
+  }
+
   if (!isAuthenticated) {
     return (
       <div className="login-modal">
@@ -476,6 +566,9 @@ function App(): React.ReactElement {
         width={sidebarWidth}
         dateRange={dateRange}
         onDateRangeChange={handleDateRangeChange}
+        selfInfo={selfInfo}
+        dbReady={isAuthenticated}
+        onOpenSettings={() => setShowSettings(true)}
       />
       <div className="resizer" onMouseDown={startResizing} />
       <ChatWindow
@@ -485,6 +578,18 @@ function App(): React.ReactElement {
         contentFilter={contentFilter}
         onRefresh={() => selectedContact && handleSelectContact(selectedContact)}
         onRefreshData={loadContacts}
+      />
+      <SettingsPanel
+        open={showSettings}
+        selfInfo={selfInfo}
+        dbReady={isAuthenticated}
+        dbKey={dbKey}
+        onClose={() => setShowSettings(false)}
+        onDbKeyChange={setDbKey}
+        onDbRootChanged={() => {
+          void refreshSelfInfo()
+          void loadContacts()
+        }}
       />
     </div>
   )

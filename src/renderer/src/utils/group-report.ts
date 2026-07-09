@@ -169,9 +169,21 @@ export const buildGroupReportInput = (
   const dateRange = sameDay
     ? `${startDate} ${localTime(firstTimestamp)}-${localTime(lastTimestamp)}`
     : `${startDate} ${localTime(firstTimestamp)} 至 ${endDate} ${localTime(lastTimestamp)}`
-  const timeSpan = sameDay
-    ? `${Math.max(1, Math.ceil((lastTimestamp - firstTimestamp) / 3600000))}小时`
-    : `${Math.max(1, Math.ceil((lastTimestamp - firstTimestamp) / 86400000))}天`
+  // 模板"持续时长"格子:首条到末条消息的时长,紧凑半角格式
+  const durationMs = Math.max(0, lastTimestamp - firstTimestamp)
+  const durationHours = durationMs / 3600000
+  const timeSpan = (() => {
+    if (sameDay) {
+      if (durationHours < 1) {
+        const minutes = Math.max(1, Math.round(durationMs / 60000))
+        return `${minutes} min`
+      }
+      const hours = Math.max(1, Math.ceil(durationHours))
+      return `${hours} h`
+    }
+    const days = Math.max(1, Math.ceil(durationMs / 86400000))
+    return `${days} d`
+  })()
   const contactName = contact?.m_nsNickName || ''
   const groupName = contactName && !isInternalIdentifier(contactName) ? contactName : '未命名会话'
   const metadata: GroupReportMetadata = {

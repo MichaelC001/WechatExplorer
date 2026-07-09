@@ -1,6 +1,13 @@
 import React, { useState } from 'react'
 import { Contact } from '../../../shared/types'
 
+interface SelfInfo {
+  wxid: string
+  nickname: string
+  avatar?: string
+  accountRoot: string
+}
+
 interface SidebarProps {
   contacts: Contact[]
   selectedContact: Contact | null
@@ -10,6 +17,9 @@ interface SidebarProps {
   width: number
   dateRange: string
   onDateRangeChange: (range: string) => void
+  selfInfo: SelfInfo | null
+  dbReady: boolean
+  onOpenSettings: () => void
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -20,7 +30,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onContentFilter,
   width,
   dateRange,
-  onDateRangeChange
+  onDateRangeChange,
+  selfInfo,
+  dbReady,
+  onOpenSettings
 }) => {
   const [searchTerm, setSearchTerm] = useState('')
   const [contentFilter, setContentFilter] = useState('')
@@ -115,14 +128,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="section-empty">暂无联系人</div>
         )}
       </div>
-      {/* <div className="sidebar-footer">
-                <div className="sidebar-btn" onClick={() => window.location.reload()}>
-                    <span className="icon">↪️</span> 退出
-                </div>
-                <div className="sidebar-status">
-                    ✅ 已获得
-                </div>
-            </div> */}
+      <div className="sidebar-footer" onClick={onOpenSettings} title="设置">
+        <div className="sidebar-self-avatar">
+          {selfInfo?.avatar ? (
+            <img src={selfInfo.avatar} alt={selfInfo.nickname} referrerPolicy="no-referrer" />
+          ) : (
+            ((selfInfo?.nickname || selfInfo?.wxid || '我').charAt(0))
+          )}
+        </div>
+        <div className="sidebar-self-info">
+          <div className="sidebar-self-nickname">
+            {dbReady && selfInfo ? selfInfo.nickname || selfInfo.wxid || '我' : '未连接'}
+          </div>
+          <div className="sidebar-self-wxid">
+            {dbReady && selfInfo ? selfInfo.wxid : '点击设置 →'}
+          </div>
+        </div>
+        <div className="sidebar-self-arrow" aria-hidden>⚙</div>
+      </div>
     </div>
   )
 }

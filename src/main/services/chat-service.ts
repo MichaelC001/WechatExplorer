@@ -1,0 +1,393 @@
+import { WechatDb, WechatMessage } from '../wechat-db'
+import {
+  parseImageDatNameFromRow,
+  parseMessageContent,
+  parseStickerMessageFromRow
+} from '../message-parser'
+
+export function getCurrentKey(): string {
+  if (!dbRef) return ''
+  try {
+    return dbRef.getWcdb4Client().getKey()
+  } catch {
+    return ''
+  }
+}
+
+export interface FormattedContact {
+  m_nsUsrName: string
+  m_nsNickName: string
+  md5: string
+  type: 'user' | 'group'
+  avatar?: string
+}
+
+export interface FormattedMessage {
+  id: string
+  from: string
+  type: string
+  datetime: string
+  content: string
+  isSender: boolean
+  img?: string
+  name?: string
+  contentData?: ReturnType<typeof parseMessageContent>
+  voiceDataUrl?: string
+  voiceDuration?: number
+  localId?: number
+  createTime?: number
+  sessionId?: string
+}
+
+export interface GroupSnapshot {
+  roomId: string
+  memberCount: number
+  members: { wxid: string; nickname: string; avatar: string }[]
+}
+
+const MSG_TYPE_DICT: Record<number, string> = {
+  1: '普通文本',
+  3: '图片',
+  34: '语音',
+  42: '名片',
+  43: '视频',
+  47: '表情包',
+  48: '位置',
+  49: '分享消息',
+  50: '通话',
+  10000: '系统消息'
+}
+
+function normalizeMsgType(value: string | number | undefined): number {
+  const raw = String(value ?? '').trim()
+  if (!raw) return 0
+
+  try {
+    const parsed = BigInt(raw)
+    const low32 = Number(parsed & 0xffffffffn)
+    return low32 || Number(parsed)
+  } catch {
+    const parsed = Number(raw)
+    if (!Number.isFinite(parsed)) return 0
+    return parsed > 0xffffffff ? parsed >>> 0 : parsed
+  }
+}
+
+let dbRef: WechatDb | null = null
+
+export function setChatDb(db: WechatDb | null): void {
+  dbRef?.close()
+  dbRef = db
+}
+
+export function getChatDb(): WechatDb | null {
+  return dbRef
+}
+
+export function isReady(): boolean {
+  return dbRef !== null
+}
+
+export function listContacts(filter?: string): FormattedContact[] {
+  if (!dbRef) return []
+
+  const contacts: FormattedContact[] = []
+  const groupContacts = dbRef.getAllGroupContacts()
+  const userList = dbRef.getUserList(filter)
+  const existingMd5s = new Set<string>()
+
+  for (const user of userList) {
+    const md5 = dbRef.md5(user.m_nsUsrName)
+    const isGroup = user.m_nsUsrName.endsWith('@chatroom')
+    existingMd5s.add(md5)
+    contacts.push({
+      m_nsUsrName: user.m_nsUsrName,
+      m_nsNickName: user.nickname || '未知用户',
+      md5,
+      type: isGroup ? 'group' : 'user',
+      avatar: typeof user.avatar === 'string' ? user.avatar : undefined
+    })
+  }
+
+  const chatTables = dbRef.getAllChatTables()
+  for (const table of chatTables) {
+    if (!table.name.startsWith('Chat_')) continue
+    const md5 = table.name.substring(5)
+    if (existingMd5s.has(md5)) continue
+    if (groupContacts[md5]) {
+      contacts.push({
+        m_nsUsrName: `Group_${md5}`,
+        m_nsNickName: groupContacts[md5],
+        md5,
+        type: 'group'
+      })
+    } else {
+      contacts.push({
+        m_nsUsrName: `Unknown_${md5}`,
+        m_nsNickName: `Chat_${md5}`,
+        md5,
+        type: 'user'
+      })
+    }
+  }
+  return contacts
+}
+
+export function listMessages(
+  userMd5: string,
+  startTime?: number,
+  endTime?: number
+): FormattedMessage[] {
+  if (!dbRef) return []
+
+  const wcdb4Client = dbRef.getWcdb4Client()
+  const username = wcdb4Client.getUsernameByMd5(userMd5)
+  const rawMessages = dbRef.getUserMessages(userMd5, startTime, endTime)
+  const groupMembers = dbRef.getGroupMembersForChat(userMd5)
+  const myAvatar = dbRef.getMyAvatarUrl()
+  const myGroupNickname = username?.endsWith('@chatroom')
+    ? wcdb4Client.getMyGroupNickname(username)
+    : undefined
+
+  return rawMessages.map((msg: WechatMessage) => {
+    const rawMsgType = parseInt(msg.messageType)
+    const msgType = normalizeMsgType(msg.messageType)
+    const createTime = parseInt(msg.msgCreateTime)
+    const date = new Date(createTime * 1000)
+    const isMine = msg.mesDes !== 1
+    const localId = parseInt(msg.mesLocalID) || 0
+
+    let content = msg.msgContent
+    let img = ''
+    let name = ''
+    if (isMine) {
+      if (myAvatar) img = myAvatar
+      name = myGroupNickname || (typeof msg.senderNickname === 'string' ? msg.senderNickname : '')
+    } else {
+      if (typeof msg.senderAvatar === 'string') img = msg.senderAvatar
+      if (typeof msg.senderNickname === 'string') name = msg.senderNickname
+    }
+    if (content && typeof content === 'string') {
+      const colonIndex = content.indexOf(':')
+      if (colonIndex > 0) {
+        const potentialWxid = content.substring(0, colonIndex)
+        if (potentialWxid.startsWith('wxid_')) {
+          const member = dbRef!.getGroupMember(potentialWxid)
+          if (member) img = member.m_nsHeadImgUrl
+          if (groupMembers[potentialWxid]) {
+            name = groupMembers[potentialWxid]
+            content = content.substring(colonIndex + 1)
+          }
+        }
+      }
+    }
+
+    let contentData: ReturnType<typeof parseMessageContent> | undefined
+    let displayType = MSG_TYPE_DICT[msgType] || msg.messageType
+    const inferredMsgType =
+      typeof content === 'string' &&
+      /<appmsg\b|<refermsg\b|&lt;appmsg\b|&lt;refermsg\b/i.test(content)
+        ? 49
+        : msgType
+    if ([3, 42, 47, 48, 49, 50, 10000, 10002].includes(inferredMsgType)) {
+      try {
+        const parsed =
+          inferredMsgType === 47
+            ? parseStickerMessageFromRow(msg, content)
+            : parseMessageContent(content, inferredMsgType)
+        if (parsed.type === 'system') {
+          content = parsed.content
+          contentData = parsed
+        } else if (parsed.type !== 'unknown') {
+          content = ''
+        }
+        if (parsed.type === 'image') {
+          const imageDatName = parseImageDatNameFromRow(msg)
+          contentData = { ...parsed, datName: parsed.datName || imageDatName }
+        } else if (parsed.type !== 'system') {
+          if (parsed.type === 'sticker' && !parsed.url && parsed.md5) {
+            parsed.url = wcdb4Client.resolveEmoticonCdnUrl(parsed.md5)
+          }
+          contentData = parsed
+        }
+        if (inferredMsgType !== msgType || rawMsgType !== msgType) {
+          displayType = MSG_TYPE_DICT[inferredMsgType] || displayType
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
+
+    if (
+      !contentData &&
+      typeof content === 'string' &&
+      /^[0-9a-fA-F]{64,}$/.test(content.trim())
+    ) {
+      const parsed = parseStickerMessageFromRow(msg, content)
+      if (parsed.type === 'sticker') {
+        if (!parsed.url && parsed.md5) {
+          parsed.url = wcdb4Client.resolveEmoticonCdnUrl(parsed.md5)
+        }
+        content = ''
+        contentData = parsed
+        displayType = '表情包'
+      }
+    }
+
+    if (msgType === 34) content = '[语音消息]'
+
+    return {
+      id: msg.mesLocalID || Math.random().toString(),
+      from: contentData?.type === 'system' ? 'system' : isMine ? 'assistant' : 'user',
+      isSender: isMine,
+      type: displayType,
+      datetime: date.toLocaleString('zh-CN', { hour12: false }),
+      content,
+      img,
+      name,
+      sessionId: username,
+      localId,
+      createTime,
+      contentData
+    }
+  })
+}
+
+export function getGroupSnapshot(userMd5: string): GroupSnapshot | null {
+  if (!dbRef) return null
+  const wcdb4Client = dbRef.getWcdb4Client()
+  const roomId = wcdb4Client.getUsernameByMd5(userMd5)
+  if (!roomId || !roomId.endsWith('@chatroom')) return null
+
+  const members = wcdb4Client
+    .getGroupMembers(roomId)
+    .filter((member) => member?.m_nsUsrName)
+    .map((member) => ({
+      wxid: member.m_nsUsrName,
+      nickname: member.nickname || '',
+      avatar: member.m_nsHeadImgUrl || ''
+    }))
+
+  return { roomId, memberCount: members.length, members }
+}
+
+export function searchMessages(keyword: string): string | null {
+  if (!dbRef) return null
+  return dbRef.searchAllMessages(keyword)
+}
+
+export function listRecentChat(limit = 50): FormattedContact[] {
+  const contacts = listContacts()
+  return contacts.slice(0, limit)
+}
+
+export function resolveMd5(query: string): FormattedContact | null {
+  const trimmed = query.trim()
+  if (!trimmed) return null
+  const lower = trimmed.toLowerCase()
+  const contacts = listContacts()
+
+  const exact = contacts.find(
+    (c) =>
+      c.md5 === trimmed ||
+      c.m_nsUsrName.toLowerCase() === lower ||
+      c.m_nsNickName.toLowerCase() === lower
+  )
+  if (exact) return exact
+
+  const partial = contacts.find(
+    (c) =>
+      c.m_nsNickName.toLowerCase().includes(lower) ||
+      c.m_nsUsrName.toLowerCase().includes(lower)
+  )
+  return partial || null
+}
+
+export interface SelfAccountInfo {
+  wxid: string
+  nickname: string
+  avatar?: string
+  accountRoot: string
+}
+
+export function getSelfAccountInfo(): SelfAccountInfo | null {
+  if (!dbRef) return null
+  const wcdb = dbRef.getWcdb4Client()
+  const accountRoot = wcdb.getAccountRoot()
+  const usernameCandidates = wcdb.getMyUsernameCandidates()
+  const primaryUsername = usernameCandidates[0] ?? ''
+  const wxid =
+    primaryUsername && primaryUsername.toLowerCase().startsWith('wxid_')
+      ? primaryUsername
+      : wcdb.getUsernameByMd5(wcdb.md5(accountRoot.split('/').pop() || '')) || primaryUsername
+
+  let nickname = ''
+  let avatar: string | undefined
+  try {
+    avatar = wcdb.getMyAvatarUrl()
+  } catch {
+    avatar = undefined
+  }
+
+  if (usernameCandidates.length) {
+    const contacts = listContacts()
+    const self = contacts.find(
+      (c) =>
+        usernameCandidates.includes(c.m_nsUsrName) ||
+        (c.type === 'user' && usernameCandidates.some((u) => c.m_nsUsrName.includes(u)))
+    )
+    if (self) {
+      nickname = self.m_nsNickName
+      avatar = avatar || self.avatar
+    }
+  }
+
+  return {
+    wxid: wxid || primaryUsername || '',
+    nickname: nickname || wxid || '我',
+    avatar,
+    accountRoot
+  }
+}
+
+export function testConnection(
+  key: string,
+  accountRoot?: string
+): { success: boolean; error?: string; accountRoot?: string; wxid?: string } {
+  try {
+    const probeKey = key.replace(/^0x/i, '').trim()
+    if (!probeKey) {
+      return { success: false, error: '密钥不能为空' }
+    }
+    const probe = accountRoot ? new WechatDb(probeKey, accountRoot) : new WechatDb(probeKey)
+    try {
+      probe.close()
+    } catch {
+      // best effort
+    }
+    return {
+      success: true,
+      accountRoot: probe.getWcdb4Client().getAccountRoot(),
+      wxid: (probe.getWcdb4Client().getMyUsernameCandidates?.() ?? [])[0] || ''
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
+
+export function reopenWithRoot(accountRoot: string): boolean {
+  if (!dbRef) return false
+  const key = getCurrentKey()
+  if (!key) return false
+  try {
+    const next = new WechatDb(key, accountRoot)
+    setChatDb(next)
+    return true
+  } catch (error) {
+    console.error('[ChatService] reopen with root failed:', error)
+    return false
+  }
+}
