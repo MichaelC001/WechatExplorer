@@ -28,6 +28,7 @@ const api = {
   revealGroupReport: (filePath: string) => ipcRenderer.invoke('report:reveal', filePath),
   getSavedDbKey: () => ipcRenderer.invoke('key:getSavedDbKey'),
   autoGetDbKey: () => ipcRenderer.invoke('key:autoGetDbKey'),
+  autoGetImageKey: () => ipcRenderer.invoke('key:autoGetImageKey'),
   pasteAndSaveDbKey: () => ipcRenderer.invoke('key:pasteAndSaveDbKey'),
   saveDbKey: (key: string) => ipcRenderer.invoke('key:saveDbKey', key),
   clearSavedDbKey: () => ipcRenderer.invoke('key:clearSavedDbKey'),
@@ -44,6 +45,12 @@ const api = {
       callback(payload)
     ipcRenderer.on('key:dbKeyStatus', listener)
     return () => ipcRenderer.removeListener('key:dbKeyStatus', listener)
+  },
+  onImageKeyStatus: (callback: (payload: { message: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: { message: string }): void =>
+      callback(payload)
+    ipcRenderer.on('key:imageKeyStatus', listener)
+    return () => ipcRenderer.removeListener('key:imageKeyStatus', listener)
   },
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),

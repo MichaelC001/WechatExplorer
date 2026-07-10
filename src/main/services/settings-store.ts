@@ -8,6 +8,9 @@ export interface AppSettings {
   apiEnabled: boolean
   apiHost: string
   apiPort: number
+  imageKeyRoot: string
+  imageXorKey: string
+  imageAesKey: string
 }
 
 function getDefaultDbRoot(): string {
@@ -102,11 +105,16 @@ function isUsableDbRoot(candidate?: string): boolean {
   }
 }
 
+const defaultDbRoot = getDefaultDbRoot()
+
 const DEFAULT_SETTINGS: AppSettings = {
-  dbRoot: getDefaultDbRoot(),
+  dbRoot: defaultDbRoot,
   apiEnabled: true,
   apiHost: '127.0.0.1',
-  apiPort: 6131
+  apiPort: 6131,
+  imageKeyRoot: defaultDbRoot,
+  imageXorKey: process.env.VITE_IMAGE_XOR_KEY || '',
+  imageAesKey: process.env.VITE_IMAGE_AES_KEY || ''
 }
 
 const SETTINGS_FILE = path.join(
@@ -128,6 +136,9 @@ export function loadSettings(): AppSettings {
       cache = { ...DEFAULT_SETTINGS, ...raw }
       if (process.platform === 'win32' && !isUsableDbRoot(cache.dbRoot)) {
         cache.dbRoot = getDefaultDbRoot()
+      }
+      if (!cache.imageKeyRoot) {
+        cache.imageKeyRoot = cache.dbRoot
       }
       return cache
     }

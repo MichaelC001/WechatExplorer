@@ -922,64 +922,8 @@ export class KeyService {
       onProgress?: (message: string) => void,
       wxidParam?: string
   ): Promise<ImageKeyResult> {
-    if (!this.ensureWin32()) return { success: false, error: '仅支持 Windows' }
-    if (!this.ensureLoaded()) return { success: false, error: this.getLoadError() }
-
-    onProgress?.('正在从缓存目录扫描图片密钥...')
-
-    const resultBuffer = Buffer.alloc(8192)
-    const ok = this.getImageKeyDll(resultBuffer, resultBuffer.length)
-
-    if (!ok) {
-      const errMsg = this.getLastErrorMsg ? this.decodeCString(this.getLastErrorMsg()) : '获取图片密钥失败'
-      return { success: false, error: errMsg }
-    }
-
-    const jsonStr = this.decodeUtf8(resultBuffer)
-    let parsed: any
-    try {
-      parsed = JSON.parse(jsonStr)
-    } catch {
-      return { success: false, error: '解析密钥数据失败' }
-    }
-
-    // 从任意账号提取 code 列表（code 来自 kvcomm，与 wxid 无关，所有账号都一样）
-    const accounts: any[] = parsed.accounts ?? []
-    if (!accounts.length || !accounts[0]?.keys?.length) {
-      return { success: false, error: '未找到有效的密钥码（kvcomm 缓存为空）' }
-    }
-
-    const codes: number[] = accounts[0].keys.map((k: any) => k.code)
-    console.log('[ImageKey] codes:', codes, 'DLL wxids:', accounts.map((a: any) => a.wxid))
-
-    const wxidCandidates = await this.collectWxidCandidates(manualDir, wxidParam)
-    let verifyCiphertext: Buffer | null = null
-    if (manualDir && existsSync(manualDir)) {
-      const template = await this._findTemplateData(manualDir, 32)
-      verifyCiphertext = template.ciphertext
-    }
-
-    if (verifyCiphertext) {
-      onProgress?.(`正在校验候选 wxid（${wxidCandidates.length} 个）...`)
-      for (const candidateWxid of wxidCandidates) {
-        for (const code of codes) {
-          const { xorKey, aesKey } = this.deriveImageKeys(code, candidateWxid)
-          if (!this.verifyDerivedAesKey(aesKey, verifyCiphertext)) continue
-          onProgress?.(`密钥获取成功 (wxid: ${candidateWxid}, code: ${code})`)
-          console.log('[ImageKey] 校验命中: wxid=', candidateWxid, 'code=', code)
-          return { success: true, xorKey, aesKey, verified: true }
-        }
-      }
-      return { success: false, error: '缓存 code 与当前账号 wxid 未匹配，请确认账号目录后重试，或使用内存扫描' }
-    }
-
-    // 无模板密文可验真时回退旧策略
-    const fallbackWxid = wxidCandidates[0] || accounts[0].wxid || 'unknown'
-    const fallbackCode = codes[0]
-    const { xorKey, aesKey } = this.deriveImageKeys(fallbackCode, fallbackWxid)
-    onProgress?.(`密钥获取成功 (wxid: ${fallbackWxid}, code: ${fallbackCode})`)
-    console.log('[ImageKey] 回退计算: wxid=', fallbackWxid, 'code=', fallbackCode)
-    return { success: true, xorKey, aesKey, verified: false }
+    void wxidParam
+    return this.autoGetImageKeyByMemoryScan(manualDir || '', onProgress)
   }
 
   // --- 内存扫描备选方案（融合 Dart+Python 优点）---

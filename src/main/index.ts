@@ -47,6 +47,24 @@ const BUILD_MARK = 'wechat4-local-http-api-2026-07-03'
 const TRAY_MODE =
   process.argv.includes('--tray') || (process.env['WXE_TRAY'] || '').toString() === '1'
 
+function normalizeImageXorKey(value: unknown): string {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const parsed = raw.toLowerCase().startsWith('0x')
+    ? Number.parseInt(raw.slice(2), 16)
+    : Number.parseInt(raw, 10)
+  if (!Number.isFinite(parsed)) return raw
+  return `0x${Math.max(0, parsed & 0xff).toString(16).toUpperCase().padStart(2, '0')}`
+}
+
+function getConfiguredImageKeys(): { xorKey: string; aesKey: string } {
+  const settings = loadSettings()
+  return {
+    xorKey: settings.imageXorKey || import.meta.env.VITE_IMAGE_XOR_KEY || '0x40',
+    aesKey: settings.imageAesKey || import.meta.env.VITE_IMAGE_AES_KEY || ''
+  }
+}
+
 
 function createWindow(): void {
   // 创建浏览器窗口
@@ -180,6 +198,36 @@ app.whenReady().then(async () => {
     }
   })
 
+  ipcMain.handle('key:autoGetImageKey', async (event) => {
+    const settings = loadSettings()
+    const self = chat.getSelfAccountInfo()
+    const accountRoot = settings.imageKeyRoot || self?.accountRoot || settings.dbRoot
+    const wxid = self?.wxid
+    const onStatus = (message: string): void => {
+      if (!event.sender.isDestroyed()) event.sender.send('key:imageKeyStatus', { message })
+    }
+    const result =
+      process.platform === 'win32'
+        ? await keyServiceWin.autoGetImageKeyByMemoryScan(accountRoot, onStatus)
+        : await keyServiceMac.autoGetImageKey(accountRoot, onStatus, wxid)
+
+    if (!result.success || !result.aesKey) return result
+
+    const imageXorKey = normalizeImageXorKey(result.xorKey)
+    const nextSettings = saveSettings({
+      ...settings,
+      imageXorKey,
+      imageAesKey: result.aesKey
+    })
+    imageDecryptService = null
+    return {
+      ...result,
+      imageXorKey,
+      imageAesKey: result.aesKey,
+      settings: nextSettings
+    }
+  })
+
   ipcMain.handle('db:getContacts', (_, filter?: string) => chat.listContacts(filter))
 
   ipcMain.handle('db:getContactAvatars', (_, usernames: string[]) =>
@@ -275,9 +323,7 @@ app.whenReady().then(async () => {
     async (_, imageMd5?: string, imageDatNameOrThumb?: string | boolean, _sessionId?: string) => {
       void _sessionId
       if (!imageDecryptService) {
-        // 从环境变量获取密钥
-        const xorKey = import.meta.env.VITE_IMAGE_XOR_KEY || '0x40'
-        const aesKey = import.meta.env.VITE_IMAGE_AES_KEY || ''
+        const { xorKey, aesKey } = getConfiguredImageKeys()
         if (!aesKey) {
           return { success: false, error: '未配置图片解密密钥' }
         }
@@ -314,7 +360,14 @@ app.whenReady().then(async () => {
   }))
 
   ipcMain.handle('settings:set', (_, patch: Partial<AppSettings>) => {
-    const merged = saveSettings({ ...loadSettings(), ...patch })
+    const before = loadSettings()
+    const merged = saveSettings({ ...before, ...patch })
+    if (
+      before.imageXorKey !== merged.imageXorKey ||
+      before.imageAesKey !== merged.imageAesKey
+    ) {
+      imageDecryptService = null
+    }
     return { settings: merged, settingsPath: getSettingsPath() }
   })
 

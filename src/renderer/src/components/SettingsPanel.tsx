@@ -12,6 +12,9 @@ interface AppSettings {
   apiEnabled: boolean
   apiHost: string
   apiPort: number
+  imageKeyRoot: string
+  imageXorKey: string
+  imageAesKey: string
 }
 
 interface ApiState {
@@ -51,11 +54,22 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     { kind: 'idle' | 'ok' | 'fail'; message: string; wxid?: string; accountRoot?: string }
   >({ kind: 'idle', message: '' })
   const [reopenStatus, setReopenStatus] = useState<string>('')
+  const [imageKeyStatus, setImageKeyStatus] = useState<{
+    kind: 'idle' | 'ok' | 'fail'
+    message: string
+  }>({ kind: 'idle', message: '' })
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     if (!open) return
     void refresh()
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    return window.api.onImageKeyStatus(({ message }) => {
+      setImageKeyStatus({ kind: 'idle', message })
+    })
   }, [open])
 
   async function refresh(): Promise<void> {
@@ -140,6 +154,37 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     setBusy(false)
   }
 
+  async function handleAutoGetImageKey(): Promise<void> {
+    if (!settings) return
+    setBusy(true)
+    setImageKeyStatus({ kind: 'idle', message: '正在扫描微信内存获取图片密钥...' })
+    try {
+      const result = await window.api.autoGetImageKey()
+      if (!result.success || !result.aesKey) {
+        setImageKeyStatus({ kind: 'fail', message: result.error || '图片密钥获取失败' })
+        return
+      }
+      const imageXorKey =
+        result.imageXorKey ||
+        (typeof result.xorKey === 'number'
+          ? `0x${result.xorKey.toString(16).toUpperCase().padStart(2, '0')}`
+          : settings.imageXorKey)
+      const imageAesKey = result.imageAesKey || result.aesKey
+      setSettings(result.settings || { ...settings, imageXorKey, imageAesKey })
+      setImageKeyStatus({
+        kind: 'ok',
+        message: result.verified ? '图片密钥已获取并校验通过' : '图片密钥已获取，未完成模板校验'
+      })
+    } catch (error) {
+      setImageKeyStatus({
+        kind: 'fail',
+        message: error instanceof Error ? error.message : String(error)
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="settings-overlay" onClick={onClose}>
       <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
@@ -213,6 +258,60 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </div>
             <div className="settings-hint">
               密钥通过系统 safeStorage 加密保存在本机，不会上传任何服务器。
+            </div>
+          </section>
+
+          {/* 图片解密密钥 */}
+          <section className="settings-section">
+            <div className="settings-section-title">图片解密密钥</div>
+            <div className="settings-row">
+              <input
+                type="text"
+                className="settings-input"
+                value={settings?.imageKeyRoot || settings?.dbRoot || ''}
+                onChange={(e) =>
+                  setSettings(settings ? { ...settings, imageKeyRoot: e.target.value } : null)
+                }
+                onBlur={(e) => handleSave({ imageKeyRoot: e.target.value })}
+                placeholder={dbRootPlaceholder}
+                spellCheck={false}
+              />
+            </div>
+            <div className="settings-row">
+              <input
+                type="text"
+                className="settings-input settings-input-quarter"
+                value={settings?.imageXorKey ?? ''}
+                onChange={(e) =>
+                  setSettings(settings ? { ...settings, imageXorKey: e.target.value } : null)
+                }
+                onBlur={(e) => handleSave({ imageXorKey: e.target.value })}
+                placeholder="XOR Key，如 0x40"
+                spellCheck={false}
+              />
+              <input
+                type="text"
+                className="settings-input"
+                value={settings?.imageAesKey ?? ''}
+                onChange={(e) =>
+                  setSettings(settings ? { ...settings, imageAesKey: e.target.value } : null)
+                }
+                onBlur={(e) => handleSave({ imageAesKey: e.target.value })}
+                placeholder="AES Key，16 位字符"
+                spellCheck={false}
+              />
+              <button className="settings-btn" onClick={handleAutoGetImageKey} disabled={busy}>
+                内存扫描图片密钥
+              </button>
+            </div>
+            {imageKeyStatus.message && (
+              <div className={`settings-status ${imageKeyStatus.kind}`}>
+                {imageKeyStatus.kind === 'ok' ? '✓ ' : imageKeyStatus.kind === 'fail' ? '✗ ' : ''}
+                {imageKeyStatus.message}
+              </div>
+            )}
+            <div className="settings-hint">
+              目录默认使用数据库根目录，用于查找图片模板文件。Windows 会直接扫描微信内存，请先在微信中打开 2-3 张图片大图。
             </div>
           </section>
 

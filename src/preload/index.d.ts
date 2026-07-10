@@ -78,17 +78,39 @@ declare global {
         saved?: boolean
         warning?: string
       }>
+      autoGetImageKey: () => Promise<{
+        success: boolean
+        xorKey?: number
+        aesKey?: string
+        verified?: boolean
+        error?: string
+        imageXorKey?: string
+        imageAesKey?: string
+        settings?: {
+          dbRoot: string
+          apiEnabled: boolean
+          apiHost: string
+          apiPort: number
+          imageKeyRoot: string
+          imageXorKey: string
+          imageAesKey: string
+        }
+      }>
       pasteAndSaveDbKey: () => Promise<{ success: boolean; key?: string; error?: string }>
       saveDbKey: (key: string) => Promise<{ success: boolean; key?: string; error?: string }>
       clearSavedDbKey: () => Promise<{ success: boolean; error?: string }>
       onWcdbChange: (callback: (payload: { type: string; json: string }) => void) => () => void
       onDbKeyStatus: (callback: (payload: { message: string }) => void) => () => void
+      onImageKeyStatus: (callback: (payload: { message: string }) => void) => () => void
       getSettings: () => Promise<{
         settings: {
           dbRoot: string
           apiEnabled: boolean
           apiHost: string
           apiPort: number
+          imageKeyRoot: string
+          imageXorKey: string
+          imageAesKey: string
         }
         settingsPath: string
       }>
@@ -97,12 +119,18 @@ declare global {
         apiEnabled: boolean
         apiHost: string
         apiPort: number
+        imageKeyRoot: string
+        imageXorKey: string
+        imageAesKey: string
       }>) => Promise<{
         settings: {
           dbRoot: string
           apiEnabled: boolean
           apiHost: string
           apiPort: number
+          imageKeyRoot: string
+          imageXorKey: string
+          imageAesKey: string
         }
         settingsPath: string
       }>
