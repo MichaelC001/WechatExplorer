@@ -1,11 +1,12 @@
 {
   "name": "wechatexplorer",
-  "version": "2.0.1",
-  "description": "mac 版本获取微信聊天记录, AI群聊总结助手",
+  "version": "2.1.0",
+  "description": "macOS / Windows 微信聊天记录查看与 AI 群聊总结助手",
   "keywords": [
     "wechat",
     "chat",
     "mac微信",
+    "windows微信",
     "微信聊天记录",
     "AI群聊总结助手"
   ],
