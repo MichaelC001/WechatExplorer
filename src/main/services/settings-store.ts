@@ -10,11 +10,100 @@ export interface AppSettings {
   apiPort: number
 }
 
+function getDefaultDbRoot(): string {
+  const home = os.homedir()
+  const candidates = getDefaultDbRootCandidates(home)
+  return candidates.find((candidate) => isUsableDbRoot(candidate)) || candidates[0]
+}
+
+function getDefaultDbRootCandidates(home: string): string[] {
+  if (process.platform !== 'win32') {
+    return [path.join(home, 'Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files')]
+  }
+
+  const candidates = [
+    ...getWeflowDbPathCandidates(home),
+    path.join(home, 'Documents', 'WeChat Files'),
+    path.join(home, 'Documents', 'xwechat_files'),
+    path.join(home, 'WeChat Files'),
+    path.join(os.homedir(), 'AppData', 'Roaming', 'Tencent', 'xwechat_files')
+  ]
+
+  for (const drive of getWindowsDrives()) {
+    candidates.push(path.join(`${drive}:\\`, 'xwechat_files'))
+    candidates.push(path.join(`${drive}:\\`, 'WeChat Files'))
+    for (const child of listDirectories(`${drive}:\\`)) {
+      candidates.push(path.join(child, 'xwechat_files'))
+      candidates.push(path.join(child, 'WeChat Files'))
+    }
+  }
+
+  return unique(candidates)
+}
+
+function getWeflowDbPathCandidates(home: string): string[] {
+  const configPaths = [
+    path.join(home, 'AppData', 'Roaming', 'weflow', 'WeFlow-config.json'),
+    path.join(home, 'AppData', 'Roaming', 'WeFlow', 'WeFlow-config.json')
+  ]
+  const candidates: string[] = []
+  for (const configPath of configPaths) {
+    try {
+      const config = fs.readJsonSync(configPath) as { dbPath?: unknown }
+      if (typeof config.dbPath === 'string' && config.dbPath.trim()) {
+        candidates.push(config.dbPath.trim())
+      }
+    } catch {
+      // WeFlow is optional; ignore missing or unreadable config.
+    }
+  }
+  return candidates
+}
+
+function getWindowsDrives(): string[] {
+  const drives: string[] = []
+  for (let code = 67; code <= 90; code += 1) {
+    const drive = String.fromCharCode(code)
+    if (fs.existsSync(`${drive}:\\`)) drives.push(drive)
+  }
+  return drives
+}
+
+function listDirectories(root: string): string[] {
+  try {
+    return fs
+      .readdirSync(root)
+      .map((name) => path.join(root, name))
+      .filter((candidate) => {
+        try {
+          return fs.statSync(candidate).isDirectory()
+        } catch {
+          return false
+        }
+      })
+  } catch {
+    return []
+  }
+}
+
+function unique(values: string[]): string[] {
+  return Array.from(new Set(values))
+}
+
+function isUsableDbRoot(candidate?: string): boolean {
+  if (!candidate || !fs.existsSync(candidate)) return false
+  if (fs.existsSync(path.join(candidate, 'db_storage'))) return true
+  try {
+    return fs
+      .readdirSync(candidate)
+      .some((name) => fs.existsSync(path.join(candidate, name, 'db_storage')))
+  } catch {
+    return false
+  }
+}
+
 const DEFAULT_SETTINGS: AppSettings = {
-  dbRoot: path.join(
-    os.homedir(),
-    'Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files'
-  ),
+  dbRoot: getDefaultDbRoot(),
   apiEnabled: true,
   apiHost: '127.0.0.1',
   apiPort: 6131
@@ -37,6 +126,9 @@ export function loadSettings(): AppSettings {
     if (fs.existsSync(SETTINGS_FILE)) {
       const raw = fs.readJsonSync(SETTINGS_FILE) as Partial<AppSettings>
       cache = { ...DEFAULT_SETTINGS, ...raw }
+      if (process.platform === 'win32' && !isUsableDbRoot(cache.dbRoot)) {
+        cache.dbRoot = getDefaultDbRoot()
+      }
       return cache
     }
   } catch (error) {

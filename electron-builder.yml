@@ -21,8 +21,13 @@ extraResources:
     filter:
       - '**/*'
 win:
-  executableName: wechatexplorer
+  # WCDB's Windows runtime checks the host executable name. The dev runtime is
+  # electron.exe, so keep the packaged executable compatible while preserving
+  # WechatExplorer as the product/shortcut name.
+  executableName: electron
 nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}

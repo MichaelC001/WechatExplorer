@@ -41,6 +41,83 @@ type KoffiModule = {
   decode: (ptr: unknown, type: string, length: number) => string
 }
 
+// Module-level singleton for WCDB native handle. WCDB's Windows runtime
+// returns -1006 if wcdb_init is called more than once per process, so we
+// perform InitProtection + wcdb_init exactly once and cache the resulting
+// library reference for every Wcdb4Client instance.
+let wcdbBootstrapLib: KoffiLibrary | null = null
+
+export function bootstrapWcdbNative(libPath?: string, libDirOverride?: string): KoffiLibrary {
+  if (wcdbBootstrapLib) return wcdbBootstrapLib
+
+  const koffi = nodeRequire('koffi') as KoffiModule
+  const resolvedLibPath = libPath || Wcdb4Client.resolveNativeLibrary()
+  const libDir = libDirOverride || path.dirname(resolvedLibPath)
+  console.log(
+    `[WCDB4] bootstrap koffi.load begin ${resolvedLibPath} cwd=${process.cwd()} resourcesPath=${process.resourcesPath || ''}`
+  )
+  for (const name of process.platform === 'win32'
+    ? ['WCDB.dll', 'SDL2.dll']
+    : process.platform === 'darwin'
+      ? ['libWCDB.dylib']
+      : []) {
+    const preloadPath = path.join(libDir, name)
+    if (!fs.existsSync(preloadPath)) continue
+    try {
+      koffi.load(preloadPath)
+      console.log(`[WCDB4] bootstrap preload ok ${preloadPath}`)
+    } catch {
+      console.warn(`[WCDB4] bootstrap preload failed ${preloadPath}`)
+    }
+  }
+  const lib = koffi.load(resolvedLibPath)
+  console.log(`[WCDB4] bootstrap koffi.load ok ${resolvedLibPath}`)
+
+  const initProtection = lib.func('int32 InitProtection(const char* resourcePath)') as (
+    resourcePath: string
+  ) => number
+  const resourceRoots = Array.from(
+    new Set([
+      libDir,
+      path.dirname(libDir),
+      process.env.WCDB_RESOURCES_PATH || '',
+      path.join(process.resourcesPath || process.cwd(), 'resources'),
+      process.resourcesPath || process.cwd(),
+      path.join(process.cwd(), 'resources')
+    ])
+  )
+  let lastCode = -1
+  let initOk = false
+  for (const resourceRoot of resourceRoots) {
+    try {
+      console.log(`[WCDB4] bootstrap InitProtection call ${resourceRoot}`)
+      lastCode = Number(initProtection(resourceRoot))
+      console.log(`[WCDB4] bootstrap InitProtection rc=${lastCode} path=${resourceRoot}`)
+      if (lastCode === 0) {
+        initOk = true
+        console.log(`[WCDB4] bootstrap InitProtection ok path=${resourceRoot}`)
+        break
+      }
+    } catch (error) {
+      console.warn(`[WCDB4] bootstrap InitProtection exception path=${resourceRoot}`, error)
+    }
+  }
+  if (!initOk) {
+    throw new Error(`InitProtection 失败，错误码: ${lastCode}; tried=${resourceRoots.join(' | ')}`)
+  }
+
+  const wcdbInit = lib.func('int32 wcdb_init()') as () => number
+  console.log('[WCDB4] bootstrap wcdb_init begin')
+  const initRc = Number(wcdbInit())
+  console.log(`[WCDB4] bootstrap wcdb_init rc=${initRc}`)
+  if (initRc !== 0) {
+    throw new Error(`wcdb_init 失败，错误码: ${initRc}`)
+  }
+
+  wcdbBootstrapLib = lib
+  return lib
+}
+
 type KoffiLibrary = {
   func: (signature: string) => (...args: unknown[]) => unknown
 }
@@ -51,10 +128,7 @@ type WcdbHandleOut = [number]
 const nodeRequire = createRequire(import.meta.url)
 
 export class Wcdb4Client {
-  static readonly defaultRoot = path.join(
-    os.homedir(),
-    'Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files'
-  )
+  static readonly defaultRoot = Wcdb4Client.findExistingDefaultRoot()
 
   private readonly key: string
   private readonly accountRoot: string
@@ -63,13 +137,12 @@ export class Wcdb4Client {
   private readonly sessionDbPath: string
   private koffi: KoffiModule | null = null
   private handle: number | null = null
-  private initialized = false
   private displayNameCache = new Map<string, string>()
   private avatarCache = new Map<string, string>()
   private groupNicknameCache = new Map<string, Map<string, string>>()
   private cachedSessions: Wcdb4Session[] | null = null
+  private cachedChatTables: { name: string; db_number: string }[] | null = null
 
-  private wcdbInit: (() => number) | null = null
   private wcdbShutdown: (() => number) | null = null
   private wcdbOpenAccount:
     | ((sessionDbPath: string, key: string, handleOut: WcdbHandleOut) => number)
@@ -85,6 +158,9 @@ export class Wcdb4Client {
         offset: number,
         outJson: WcdbVoidOut
       ) => number)
+    | null = null
+  private wcdbGetMessageTableStats:
+    | ((handle: number, username: string, outJson: WcdbVoidOut) => number)
     | null = null
   private wcdbGetDisplayNames:
     | ((handle: number, usernamesJson: string, outJson: WcdbVoidOut) => number)
@@ -158,11 +234,11 @@ export class Wcdb4Client {
   }
 
   static resolveAccountRoot(accountRoot: string): string {
-    const target = (accountRoot || '').trim().replace(/\/+$/, '')
+    const target = (accountRoot || '').trim().replace(/[\\/]+$/, '')
     if (!target) {
       throw new Error('微信 4.0 账号目录不能为空')
     }
-    if (fs.existsSync(path.join(target, 'db_storage'))) {
+    if (Wcdb4Client.hasDbStorage(target)) {
       return target
     }
     if (!fs.existsSync(target)) {
@@ -171,17 +247,8 @@ export class Wcdb4Client {
     const candidates = fs
       .readdirSync(target)
       .map((name) => path.join(target, name))
-      .filter((candidate) => {
-        try {
-          return (
-            fs.statSync(candidate).isDirectory() &&
-            fs.existsSync(path.join(candidate, 'db_storage'))
-          )
-        } catch {
-          return false
-        }
-      })
-      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
+      .filter((candidate) => Wcdb4Client.hasDbStorage(candidate))
+      .sort(Wcdb4Client.compareAccountDirs)
     if (!candidates[0]) {
       throw new Error(`未找到包含 db_storage 的微信 4.0 账号目录: ${target}`)
     }
@@ -194,30 +261,132 @@ export class Wcdb4Client {
       throw new Error(`未找到微信 4.0 数据目录: ${root}`)
     }
 
-    if (fs.existsSync(path.join(root, 'db_storage'))) {
+    if (Wcdb4Client.hasDbStorage(root)) {
       return root
     }
 
     const candidates = fs
       .readdirSync(root)
       .map((name) => path.join(root, name))
-      .filter((candidate) => {
-        try {
-          return (
-            fs.statSync(candidate).isDirectory() &&
-            fs.existsSync(path.join(candidate, 'db_storage'))
-          )
-        } catch {
-          return false
-        }
-      })
-      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
+      .filter((candidate) => Wcdb4Client.hasDbStorage(candidate))
+      .sort(Wcdb4Client.compareAccountDirs)
 
     if (!candidates[0]) {
       throw new Error(`未找到包含 db_storage 的微信 4.0 账号目录: ${root}`)
     }
 
     return candidates[0]
+  }
+
+  private static findExistingDefaultRoot(): string {
+    const roots = Wcdb4Client.getDefaultRootCandidates()
+    return roots.find((root) => Wcdb4Client.isUsableRoot(root)) || roots[0]
+  }
+
+  private static getDefaultRootCandidates(): string[] {
+    const home = os.homedir()
+    if (process.platform === 'win32') {
+      const candidates = [
+        ...Wcdb4Client.getWeflowDbPathCandidates(home),
+        path.join(home, 'Documents', 'WeChat Files'),
+        path.join(home, 'Documents', 'xwechat_files'),
+        path.join(home, 'WeChat Files'),
+        path.join(home, 'AppData', 'Roaming', 'Tencent', 'xwechat_files')
+      ]
+      for (const drive of Wcdb4Client.getWindowsDrives()) {
+        candidates.push(path.join(`${drive}:\\`, 'xwechat_files'))
+        candidates.push(path.join(`${drive}:\\`, 'WeChat Files'))
+        for (const child of Wcdb4Client.listDirectories(`${drive}:\\`)) {
+          candidates.push(path.join(child, 'xwechat_files'))
+          candidates.push(path.join(child, 'WeChat Files'))
+        }
+      }
+      return Array.from(new Set(candidates))
+    }
+    return [path.join(home, 'Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files')]
+  }
+
+  private static getWeflowDbPathCandidates(home: string): string[] {
+    const configPaths = [
+      path.join(home, 'AppData', 'Roaming', 'weflow', 'WeFlow-config.json'),
+      path.join(home, 'AppData', 'Roaming', 'WeFlow', 'WeFlow-config.json')
+    ]
+    const candidates: string[] = []
+    for (const configPath of configPaths) {
+      try {
+        const config = fs.readJsonSync(configPath) as { dbPath?: unknown }
+        if (typeof config.dbPath === 'string' && config.dbPath.trim()) {
+          candidates.push(config.dbPath.trim())
+        }
+      } catch {
+        // WeFlow is optional; ignore missing or unreadable config.
+      }
+    }
+    return candidates
+  }
+
+  private static getWindowsDrives(): string[] {
+    const drives: string[] = []
+    for (let code = 67; code <= 90; code += 1) {
+      const drive = String.fromCharCode(code)
+      if (fs.existsSync(`${drive}:\\`)) drives.push(drive)
+    }
+    return drives
+  }
+
+  private static listDirectories(root: string): string[] {
+    try {
+      return fs
+        .readdirSync(root)
+        .map((name) => path.join(root, name))
+        .filter((candidate) => {
+          try {
+            return fs.statSync(candidate).isDirectory()
+          } catch {
+            return false
+          }
+        })
+    } catch {
+      return []
+    }
+  }
+
+  private static hasDbStorage(candidate: string): boolean {
+    try {
+      return fs.statSync(candidate).isDirectory() && fs.existsSync(path.join(candidate, 'db_storage'))
+    } catch {
+      return false
+    }
+  }
+
+  private static isUsableRoot(candidate: string): boolean {
+    if (!fs.existsSync(candidate)) return false
+    if (Wcdb4Client.hasDbStorage(candidate)) return true
+    try {
+      return fs
+        .readdirSync(candidate)
+        .some((name) => Wcdb4Client.hasDbStorage(path.join(candidate, name)))
+    } catch {
+      return false
+    }
+  }
+
+  private static hasSessionDb(candidate: string): boolean {
+    return (
+      fs.existsSync(path.join(candidate, 'db_storage', 'session', 'session.db')) ||
+      fs.existsSync(path.join(candidate, 'db_storage', 'session.db'))
+    )
+  }
+
+  private static compareAccountDirs(a: string, b: string): number {
+    const aHasSession = Wcdb4Client.hasSessionDb(a)
+    const bHasSession = Wcdb4Client.hasSessionDb(b)
+    if (aHasSession !== bHasSession) return aHasSession ? -1 : 1
+    try {
+      return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs
+    } catch {
+      return 0
+    }
   }
 
   private static cleanAccountDirName(dirName: string): string {
@@ -236,24 +405,21 @@ export class Wcdb4Client {
 
   open(): void {
     this.loadNativeLibrary()
-    if (!this.wcdbInit || !this.wcdbOpenAccount) {
+    if (!this.wcdbOpenAccount) {
       throw new Error('WCDB 4.0 native 接口未就绪')
     }
 
-    if (!this.initialized) {
-      const initResult = this.wcdbInit()
-      if (initResult !== 0) {
-        console.warn(`wcdb_init 返回 ${initResult}，继续尝试 wcdb_open_account`)
-      } else {
-        this.initialized = true
-      }
-    }
-
+    let openResult = -1
     const handleOut: WcdbHandleOut = [0]
-    const openResult = this.wcdbOpenAccount(this.sessionDbPath, this.key, handleOut)
+    openResult = this.wcdbOpenAccount(this.sessionDbPath, this.key, handleOut)
+
     if (openResult !== 0 || handleOut[0] <= 0) {
+      const hint =
+        openResult === -1005
+          ? '；这通常表示密钥与当前账号数据库不匹配，请确认微信已登录目标账号，并重新自动获取密钥'
+          : ''
       throw new Error(
-        `wcdb_open_account 失败，错误码: ${openResult}; sessionDb=${this.sessionDbPath}; accountRoot=${this.accountRoot}; wxid=${this.wxid}`
+        `wcdb_open_account 失败，错误码: ${openResult}${hint}; sessionDb=${this.sessionDbPath}; accountRoot=${this.accountRoot}; wxid=${this.wxid}; keyLength=${this.key.length}`
       )
     }
 
@@ -269,16 +435,17 @@ export class Wcdb4Client {
 
   close(): void {
     this.stopMonitor()
-    if (!this.initialized || !this.wcdbShutdown) return
+    if (this.handle === null || !this.wcdbShutdown) return
 
-    try {
-      this.wcdbShutdown()
-    } catch {
-      // Mirror WechatExplorer: shutdown is best-effort on app close.
+    if (process.platform !== 'win32') {
+      try {
+        this.wcdbShutdown()
+      } catch {
+        // Shutdown is best-effort on app close.
+      }
     }
 
     this.handle = null
-    this.initialized = false
     this.cachedSessions = null
     this.displayNameCache.clear()
     this.avatarCache.clear()
@@ -425,36 +592,51 @@ export class Wcdb4Client {
     if (this.cachedSessions) return this.cachedSessions
     if (!this.wcdbGetSessions) return []
 
-    const rows = this.callJson<Record<string, unknown>[]>((handle, outJson) =>
-      this.wcdbGetSessions!(handle, outJson)
-    )
-
+    const rows = this.readSessionRows()
     const sessions = (Array.isArray(rows) ? rows : [])
       .map((row) => this.normalizeSession(row))
       .filter((session) => session.username)
 
     const sessionUsernames = sessions.map((session) => session.username)
     this.hydrateDisplayNames(sessionUsernames)
-    this.hydrateAvatarUrls(sessionUsernames)
     this.cachedSessions = sessions.map((session) => ({
       ...session,
-      nickname: this.displayNameCache.get(session.username) || session.nickname || session.username,
-      avatar: this.avatarCache.get(session.username)
+      nickname: this.displayNameCache.get(session.username) || session.nickname || session.username
     }))
 
     return this.cachedSessions
   }
 
   getChatTables(): { name: string; db_number: string }[] {
-    return this.getSessions().map((session) => ({
+    if (this.cachedChatTables) return this.cachedChatTables
+    const sessions =
+      this.cachedSessions ||
+      this.readSessionRows()
+        .map((row) => this.normalizeSession(row))
+        .filter((session) => session.username)
+    this.cachedChatTables = sessions.map((session) => ({
       name: `Chat_${this.md5(session.username)}`,
       db_number: session.username
     }))
+    return this.cachedChatTables
   }
 
   getMessages(username: string, startTime?: number, endTime?: number): Wcdb4Message[] {
-    const cursorMessages = this.getMessagesByCursor(username, startTime, endTime)
-    if (cursorMessages) return cursorMessages
+    const startedAt = Date.now()
+    console.log(
+      `[WCDB4] getMessages begin username=${username} start=${startTime || 0} end=${endTime || 0}`
+    )
+    try {
+      const cursorMessages = this.getMessagesByCursor(username, startTime, endTime)
+      if (cursorMessages) {
+        console.log(
+          `[WCDB4] getMessages cursor ok username=${username} rows=${cursorMessages.length} cost=${Date.now() - startedAt}ms`
+        )
+        return cursorMessages
+      }
+    } catch (error) {
+      console.warn(`[WCDB4] cursor messages failed username=${username}:`, error)
+    }
 
     if (!this.wcdbGetMessages) return []
 
@@ -463,13 +645,94 @@ export class Wcdb4Client {
     let offset = 0
 
     while (true) {
-      const rows = this.callJson<Record<string, unknown>[]>((handle, outJson) =>
-        this.wcdbGetMessages!(handle, username, limit, offset, outJson)
-      )
+      let rows: Record<string, unknown>[]
+      try {
+        rows = this.callJson<Record<string, unknown>[]>((handle, outJson) =>
+          this.wcdbGetMessages!(handle, username, limit, offset, outJson)
+        )
+      } catch (error) {
+        console.warn(
+          `[WCDB4] get_messages failed username=${username} offset=${offset}:`,
+          error
+        )
+        break
+      }
       const batch = Array.isArray(rows) ? rows : []
       allRows.push(...batch)
       if (batch.length < limit) break
       offset += limit
+    }
+
+    if (allRows.length === 0) {
+      const tableRows = this.getMessagesByTableScan(username, startTime, endTime)
+      if (tableRows.length > 0) {
+        console.log(
+          `[WCDB4] getMessages table scan ok username=${username} rows=${tableRows.length} cost=${Date.now() - startedAt}ms`
+        )
+        return tableRows
+      }
+    }
+
+    const messages = this.finalizeMessages(username, allRows, startTime, endTime)
+    console.log(
+      `[WCDB4] getMessages direct ok username=${username} rows=${messages.length} cost=${Date.now() - startedAt}ms`
+    )
+    return messages
+  }
+
+  private readSessionRows(): Record<string, unknown>[] {
+    if (!this.wcdbGetSessions) return []
+    const rows = this.callJson<Record<string, unknown>[]>((handle, outJson) =>
+      this.wcdbGetSessions!(handle, outJson)
+    )
+    return Array.isArray(rows) ? rows : []
+  }
+
+  private getMessagesByTableScan(
+    username: string,
+    startTime?: number,
+    endTime?: number
+  ): Wcdb4Message[] {
+    if (!this.wcdbGetMessageTableStats || !this.wcdbExecQuery) return []
+
+    let tables: { tableName: string; dbPath: string }[] = []
+    try {
+      const rows = this.callJson<Record<string, unknown>[]>((handle, outJson) =>
+        this.wcdbGetMessageTableStats!(handle, username, outJson)
+      )
+      tables = (Array.isArray(rows) ? rows : [])
+        .map((row) => ({
+          tableName: this.pickString(row, ['table_name', 'tableName', 'name']),
+          dbPath: this.pickString(row, ['db_path', 'dbPath', 'path'])
+        }))
+        .filter((row) => row.tableName && row.dbPath)
+    } catch (error) {
+      console.warn(`[WCDB4] message table stats failed username=${username}:`, error)
+      return []
+    }
+
+    const allRows: Record<string, unknown>[] = []
+    const begin = this.normalizeTimestamp(startTime || 0)
+    const end = this.normalizeTimestamp(endTime || 0)
+    const where = [
+      begin > 0 ? `"create_time" >= ${begin}` : '',
+      end > 0 ? `"create_time" <= ${end}` : ''
+    ].filter(Boolean)
+    const whereSql = where.length ? ` WHERE ${where.join(' AND ')}` : ''
+
+    for (const table of tables) {
+      try {
+        const sql = `SELECT * FROM ${this.quoteSqlIdentifier(table.tableName)}${whereSql} ORDER BY "create_time" ASC LIMIT 5000`
+        const rows = this.callJson<Record<string, unknown>[]>((handle, outJson) =>
+          this.wcdbExecQuery!(handle, 'message', table.dbPath, sql, outJson)
+        )
+        if (Array.isArray(rows)) allRows.push(...rows)
+      } catch (error) {
+        console.warn(
+          `[WCDB4] message table scan failed username=${username} db=${table.dbPath} table=${table.tableName}:`,
+          error
+        )
+      }
     }
 
     return this.finalizeMessages(username, allRows, startTime, endTime)
@@ -485,6 +748,17 @@ export class Wcdb4Client {
     }
 
     return undefined
+  }
+
+  getAvatarUrls(usernames: string[]): Record<string, string> {
+    const normalized = this.uniq(usernames)
+    this.hydrateAvatarUrls(normalized)
+    const result: Record<string, string> = {}
+    for (const username of normalized) {
+      const avatar = this.avatarCache.get(username)
+      if (avatar) result[username] = avatar
+    }
+    return result
   }
 
   getMyGroupNickname(chatroomId: string): string | undefined {
@@ -565,9 +839,6 @@ export class Wcdb4Client {
     endTime?: number
   ): Wcdb4Message[] {
     const messages = rows.map((row) => this.normalizeMessage(row))
-    const senderIds = messages.map((message) => message.sender || '').filter(Boolean)
-    this.hydrateDisplayNames(senderIds)
-    this.hydrateAvatarUrls(senderIds)
 
     return messages
       .filter((message) => {
@@ -650,6 +921,12 @@ export class Wcdb4Client {
         .map((member) => member.m_nsUsrName)
         .filter(Boolean)
       this.hydrateDisplayNames(missingDisplayNames)
+      this.hydrateAvatarUrls(
+        members
+          .filter((member) => !member.m_nsHeadImgUrl)
+          .map((member) => member.m_nsUsrName)
+          .filter(Boolean)
+      )
       return members.map((member) => ({
         ...member,
         nickname:
@@ -815,19 +1092,49 @@ export class Wcdb4Client {
 
     const libPath = this.findNativeLibrary()
     const libDir = path.dirname(libPath)
-    const wcdbCorePath = path.join(libDir, 'libWCDB.dylib')
-    if (fs.existsSync(wcdbCorePath)) {
-      try {
-        koffi.load(wcdbCorePath)
-      } catch {
-        // Some builds resolve this dependency through rpath.
+    console.log(
+      `[WCDB4] loadNativeLibrary platform=${process.platform} arch=${process.arch} libPath=${libPath} cwd=${process.cwd()} resourcesPath=${process.resourcesPath || ''} WCDB_RESOURCES_PATH=${process.env.WCDB_RESOURCES_PATH || ''}`
+    )
+
+    // Reuse the module-level bootstrap if main.ts already performed
+    // InitProtection + wcdb_init; WCDB returns -1006 if wcdb_init is called
+    // twice in the same process.
+    let lib: KoffiLibrary
+    if (wcdbBootstrapLib) {
+      console.log('[WCDB4] reusing bootstrap lib, skip koffi.load and wcdb_init')
+      lib = wcdbBootstrapLib
+    } else {
+      const preloadLibraries =
+        process.platform === 'win32'
+          ? ['WCDB.dll', 'SDL2.dll']
+          : process.platform === 'darwin'
+            ? ['libWCDB.dylib']
+            : []
+      for (const name of preloadLibraries) {
+        const preloadPath = path.join(libDir, name)
+        if (!fs.existsSync(preloadPath)) continue
+        try {
+          koffi.load(preloadPath)
+          console.log(`[WCDB4] preload ok ${preloadPath}`)
+        } catch {
+          console.warn(`[WCDB4] preload failed ${preloadPath}`)
+          // Some builds resolve dependencies through the platform loader path.
+        }
+      }
+
+      console.log(`[WCDB4] koffi.load begin ${libPath}`)
+      lib = koffi.load(libPath)
+      console.log(`[WCDB4] koffi.load ok ${libPath}`)
+      this.initProtection(lib, libDir)
+      const wcdbInit = lib.func('int32 wcdb_init()') as () => number
+      console.log('[WCDB4] wcdb_init begin')
+      const initResult = wcdbInit()
+      console.log(`[WCDB4] wcdb_init rc=${initResult}`)
+      if (initResult !== 0) {
+        throw new Error(`wcdb_init 失败，错误码: ${initResult}`)
       }
     }
 
-    const lib = koffi.load(libPath)
-    this.initProtection(lib, libDir)
-
-    this.wcdbInit = lib.func('int32 wcdb_init()') as () => number
     this.wcdbShutdown = lib.func('int32 wcdb_shutdown()') as () => number
     this.wcdbOpenAccount = lib.func(
       'int32 wcdb_open_account(const char* path, const char* key, _Out_ int64* handle)'
@@ -845,6 +1152,13 @@ export class Wcdb4Client {
       offset: number,
       outJson: WcdbVoidOut
     ) => number
+    try {
+      this.wcdbGetMessageTableStats = lib.func(
+        'int32 wcdb_get_message_table_stats(int64 handle, const char* sessionId, _Out_ void** outJson)'
+      ) as (handle: number, username: string, outJson: WcdbVoidOut) => number
+    } catch {
+      this.wcdbGetMessageTableStats = null
+    }
     this.wcdbGetDisplayNames = lib.func(
       'int32 wcdb_get_display_names(int64 handle, const char* usernamesJson, _Out_ void** outJson)'
     ) as (handle: number, usernamesJson: string, outJson: WcdbVoidOut) => number
@@ -986,29 +1300,43 @@ export class Wcdb4Client {
     let lastCode = -1
     for (const resourceRoot of resourceRoots) {
       try {
+        console.log(`[WCDB4] InitProtection call ${resourceRoot}`)
         lastCode = initProtection(resourceRoot)
-        if (lastCode === 0) return
-      } catch {
+        console.log(`[WCDB4] InitProtection rc=${lastCode} path=${resourceRoot}`)
+        if (lastCode === 0) {
+          console.log(`[WCDB4] InitProtection ok path=${resourceRoot}`)
+          return
+        }
+      } catch (error) {
+        console.warn(`[WCDB4] InitProtection exception path=${resourceRoot}`, error)
         // Try next candidate.
       }
     }
 
-    console.warn(
-      `InitProtection 返回 ${lastCode}，继续尝试 wcdb_init/open; tried=${resourceRoots.join(' | ')}`
-    )
+    throw new Error(`InitProtection 失败，错误码: ${lastCode}; tried=${resourceRoots.join(' | ')}`)
   }
 
   private findNativeLibrary(): string {
+    return Wcdb4Client.resolveNativeLibrary()
+  }
+
+  static resolveNativeLibrary(): string {
     const libName =
       process.platform === 'darwin'
         ? 'libwcdb_api.dylib'
         : process.platform === 'linux'
           ? 'libwcdb_api.so'
           : 'wcdb_api.dll'
-    const platformDir = process.platform === 'darwin' ? 'macos' : process.platform
+    const platformDir =
+      process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'win32' : process.platform
+    const archDir = process.arch === 'arm64' ? 'arm64' : 'x64'
     const resourcesPath = process.resourcesPath || process.cwd()
     const candidates = [
       process.env.WCDB_DLL_PATH,
+      path.join(resourcesPath, 'resources', 'wcdb', platformDir, archDir, libName),
+      path.join(resourcesPath, 'resources', 'wcdb', platformDir, 'x64', libName),
+      path.join(process.cwd(), 'resources', 'wcdb', platformDir, archDir, libName),
+      path.join(process.cwd(), 'resources', 'wcdb', platformDir, 'x64', libName),
       path.join(resourcesPath, 'resources', platformDir, libName),
       path.join(resourcesPath, 'resources', libName),
       path.join(process.cwd(), 'resources', platformDir, libName),
@@ -1018,6 +1346,11 @@ export class Wcdb4Client {
     const found = candidates.find((candidate) => fs.existsSync(candidate))
     if (!found) {
       throw new Error(`找不到 WCDB native 库: ${candidates.join(', ')}`)
+    }
+    if (process.platform === 'win32') {
+      const runtimeDir = path.join(resourcesPath, 'resources', 'runtime', 'win32')
+      const dllDir = path.dirname(found)
+      process.env.PATH = [dllDir, runtimeDir, process.env.PATH || ''].filter(Boolean).join(path.delimiter)
     }
     return found
   }
@@ -1436,5 +1769,9 @@ export class Wcdb4Client {
     if (!input || input <= 0) return 0
     const normalized = input > 1e12 ? Math.floor(input / 1000) : Math.floor(input)
     return Math.min(Math.max(normalized, 0), 2147483647)
+  }
+
+  private quoteSqlIdentifier(identifier: string): string {
+    return `"${String(identifier || '').replace(/"/g, '""')}"`
   }
 }

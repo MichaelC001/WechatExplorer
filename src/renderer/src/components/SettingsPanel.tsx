@@ -40,6 +40,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onDbKeyChange,
   onDbRootChanged
 }) => {
+  const isWindows = window.electron.process.platform === 'win32'
+  const dbRootPlaceholder = isWindows
+    ? 'C:\\Users\\你\\Documents\\WeChat Files'
+    : '~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files'
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [settingsPath, setSettingsPath] = useState('')
   const [apiState, setApiState] = useState<ApiState | null>(null)
@@ -208,7 +212,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               />
             </div>
             <div className="settings-hint">
-              密钥保存在本机 macOS Keychain(safeStorage 加密),不会上传任何服务器。
+              密钥通过系统 safeStorage 加密保存在本机，不会上传任何服务器。
             </div>
           </section>
 
@@ -222,7 +226,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 value={settings?.dbRoot ?? ''}
                 onChange={(e) => setSettings(settings ? { ...settings, dbRoot: e.target.value } : null)}
                 onBlur={(e) => handleSave({ dbRoot: e.target.value })}
-                placeholder="~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files"
+                placeholder={dbRootPlaceholder}
                 spellCheck={false}
               />
             </div>
@@ -237,7 +241,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               {reopenStatus && <span className="settings-status">{reopenStatus}</span>}
             </div>
             <div className="settings-hint">
-              指向 xwechat_files 目录,内部包含 db_storage/。修改后需重新初始化才能生效。
+              可填写微信数据总目录或具体账号目录。Windows 通常是 Documents\WeChat Files，macOS 通常是 xwechat_files；程序会自动选择包含 db_storage/session.db 的账号目录。
             </div>
           </section>
 

@@ -3,7 +3,19 @@ import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  main: {},
+  main: {
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/main/index.ts')
+        },
+        output: {
+          entryFileNames: '[name].js'
+        },
+        external: ['koffi']
+      }
+    }
+  },
   preload: {},
   renderer: {
     resolve: {

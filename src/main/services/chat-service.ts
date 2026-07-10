@@ -14,6 +14,15 @@ export function getCurrentKey(): string {
   }
 }
 
+export function getCurrentAccountRoot(): string {
+  if (!dbRef) return ''
+  try {
+    return dbRef.getWcdb4Client().getAccountRoot()
+  } catch {
+    return ''
+  }
+}
+
 export interface FormattedContact {
   m_nsUsrName: string
   m_nsNickName: string
@@ -31,6 +40,7 @@ export interface FormattedMessage {
   isSender: boolean
   img?: string
   name?: string
+  senderId?: string
   contentData?: ReturnType<typeof parseMessageContent>
   voiceDataUrl?: string
   voiceDuration?: number
@@ -133,6 +143,15 @@ export function listContacts(filter?: string): FormattedContact[] {
   return contacts
 }
 
+export function getContactAvatars(usernames: string[]): Record<string, string> {
+  if (!dbRef) return {}
+  const normalized = Array.from(
+    new Set((usernames || []).map((username) => String(username || '').trim()).filter(Boolean))
+  )
+  if (normalized.length === 0) return {}
+  return dbRef.getWcdb4Client().getAvatarUrls(normalized)
+}
+
 export function listMessages(
   userMd5: string,
   startTime?: number,
@@ -140,16 +159,18 @@ export function listMessages(
 ): FormattedMessage[] {
   if (!dbRef) return []
 
+  const startedAt = Date.now()
   const wcdb4Client = dbRef.getWcdb4Client()
   const username = wcdb4Client.getUsernameByMd5(userMd5)
+  console.log(
+    `[ChatService] listMessages begin md5=${userMd5} username=${username || ''} start=${startTime || 0} end=${endTime || 0}`
+  )
   const rawMessages = dbRef.getUserMessages(userMd5, startTime, endTime)
-  const groupMembers = dbRef.getGroupMembersForChat(userMd5)
-  const myAvatar = dbRef.getMyAvatarUrl()
-  const myGroupNickname = username?.endsWith('@chatroom')
-    ? wcdb4Client.getMyGroupNickname(username)
-    : undefined
+  console.log(
+    `[ChatService] listMessages native done md5=${userMd5} raw=${rawMessages.length} cost=${Date.now() - startedAt}ms`
+  )
 
-  return rawMessages.map((msg: WechatMessage) => {
+  const formatted = rawMessages.map((msg: WechatMessage) => {
     const rawMsgType = parseInt(msg.messageType)
     const msgType = normalizeMsgType(msg.messageType)
     const createTime = parseInt(msg.msgCreateTime)
@@ -160,9 +181,9 @@ export function listMessages(
     let content = msg.msgContent
     let img = ''
     let name = ''
+    let senderId = typeof msg.sender === 'string' ? msg.sender : ''
     if (isMine) {
-      if (myAvatar) img = myAvatar
-      name = myGroupNickname || (typeof msg.senderNickname === 'string' ? msg.senderNickname : '')
+      name = typeof msg.senderNickname === 'string' ? msg.senderNickname : ''
     } else {
       if (typeof msg.senderAvatar === 'string') img = msg.senderAvatar
       if (typeof msg.senderNickname === 'string') name = msg.senderNickname
@@ -172,15 +193,13 @@ export function listMessages(
       if (colonIndex > 0) {
         const potentialWxid = content.substring(0, colonIndex)
         if (potentialWxid.startsWith('wxid_')) {
-          const member = dbRef!.getGroupMember(potentialWxid)
-          if (member) img = member.m_nsHeadImgUrl
-          if (groupMembers[potentialWxid]) {
-            name = groupMembers[potentialWxid]
-            content = content.substring(colonIndex + 1)
-          }
+          senderId = senderId || potentialWxid
+          name = name || potentialWxid
+          content = content.substring(colonIndex + 1)
         }
       }
     }
+    if (!isMine && !name && senderId) name = senderId
 
     let contentData: ReturnType<typeof parseMessageContent> | undefined
     let displayType = MSG_TYPE_DICT[msgType] || msg.messageType
@@ -245,12 +264,18 @@ export function listMessages(
       content,
       img,
       name,
+      senderId,
       sessionId: username,
       localId,
       createTime,
       contentData
     }
   })
+
+  console.log(
+    `[ChatService] listMessages end md5=${userMd5} formatted=${formatted.length} cost=${Date.now() - startedAt}ms`
+  )
+  return formatted
 }
 
 export function getGroupSnapshot(userMd5: string): GroupSnapshot | null {

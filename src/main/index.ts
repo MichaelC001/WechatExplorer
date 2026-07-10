@@ -1,8 +1,10 @@
+import './preload-env'
 import { app, shell, BrowserWindow, ipcMain, nativeImage, clipboard, Menu, Tray } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { WechatDb } from './wechat-db'
+import { bootstrapWcdbNative } from './wcdb4-client'
 import { VoiceService } from './voice-service'
 import { StickerService } from './sticker-service'
 import { parseMessageContent } from './message-parser'
@@ -11,6 +13,7 @@ import { exportGroupReport } from './group-report-service'
 import { GroupReportExportRequest } from '../shared/group-report'
 import { DatabaseKeyStore } from './database-key-store'
 import { KeyServiceMac } from './key-service-mac'
+import { KeyService as KeyServiceWin } from './key-service-win'
 import * as chat from './services/chat-service'
 import {
   apiServer
@@ -33,14 +36,17 @@ let imageDecryptService: ImageDecryptService | null = null
 let stickerService: StickerService | null = null
 const databaseKeyStore = new DatabaseKeyStore()
 const keyServiceMac = new KeyServiceMac()
+const keyServiceWin = new KeyServiceWin()
 let tray: Tray | null = null
+
+// WCDB's Windows runtime checks the host application name during wcdb_init.
+// Mirroring WeFlow's name unblocks the -1006 init failure on Windows.
+app.setName(process.platform === 'win32' ? 'WeFlow' : 'WechatExplorer')
+let dbInitInFlight: Promise<{ success: boolean; monitoring?: boolean; error?: string }> | null = null
 const BUILD_MARK = 'wechat4-local-http-api-2026-07-03'
 const TRAY_MODE =
   process.argv.includes('--tray') || (process.env['WXE_TRAY'] || '').toString() === '1'
 
-// WechatExplorer's WCDB native library runs InitProtection before wcdb_init.
-// In dev, matching the host app name avoids failing the native protection gate.
-app.setName('WechatExplorer')
 
 function createWindow(): void {
   // 创建浏览器窗口
@@ -78,6 +84,17 @@ function createWindow(): void {
 // 某些 API 只能在此事件发生后使用
 app.whenReady().then(async () => {
   console.log(`WechatExplorer main build: ${BUILD_MARK}`)
+
+  // WCDB's Windows runtime returns -1006 if wcdb_init is called more than once
+  // per process. Bootstrap native once here so any later Wcdb4Client instance
+  // reuses the already-initialized library and skips wcdb_init.
+  try {
+    bootstrapWcdbNative()
+    console.log('[WCDB4] bootstrap complete at whenReady top')
+  } catch (bootstrapError) {
+    console.error('[WCDB4] bootstrap failed at whenReady top:', bootstrapError)
+  }
+
   // 为窗口设置应用程序用户模型 ID
   electronApp.setAppUserModelId('com.electron')
 
@@ -91,11 +108,27 @@ app.whenReady().then(async () => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
-  ipcMain.handle('db:init', (_, key: string) => {
+  ipcMain.handle('db:init', async (_, key: string) => {
+    if (dbInitInFlight) return dbInitInFlight
+
+    dbInitInFlight = (async () => {
     try {
       const trimmedKey = String(key || '').trim()
       console.log(`db:init build=${BUILD_MARK} keyLength=${trimmedKey.length}`)
-      const nextWechatDb = new WechatDb(key)
+      const settings = loadSettings()
+      if (
+        chat.isReady() &&
+        chat.getCurrentKey().replace(/^0x/i, '').trim() === trimmedKey.replace(/^0x/i, '') &&
+        (!settings.dbRoot || chat.getCurrentAccountRoot() === settings.dbRoot)
+      ) {
+        console.log('[WCDB4] db:init reuse current connection')
+        return { success: true, monitoring: true }
+      }
+      const nextWechatDb = await WechatDb.create(key, settings.dbRoot)
+      const resolvedRoot = nextWechatDb.getWcdb4Client().getAccountRoot()
+      if (resolvedRoot && resolvedRoot !== settings.dbRoot) {
+        saveSettings({ ...settings, dbRoot: resolvedRoot })
+      }
       chat.setChatDb(nextWechatDb)
       const wcdb4Client = nextWechatDb.getWcdb4Client()
       voiceService = new VoiceService(wcdb4Client)
@@ -110,7 +143,12 @@ app.whenReady().then(async () => {
     } catch (error) {
       console.error('Failed to init DB:', error)
       return { success: false, error: error instanceof Error ? error.message : String(error) }
+    } finally {
+      dbInitInFlight = null
     }
+    })()
+
+    return dbInitInFlight
   })
 
   ipcMain.handle('key:getSavedDbKey', async () => databaseKeyStore.load())
@@ -125,9 +163,13 @@ app.whenReady().then(async () => {
   ipcMain.handle('key:clearSavedDbKey', async () => databaseKeyStore.clear())
 
   ipcMain.handle('key:autoGetDbKey', async (event) => {
-    const result = await keyServiceMac.autoGetDbKey((message) => {
+    const onStatus = (message: string): void => {
       if (!event.sender.isDestroyed()) event.sender.send('key:dbKeyStatus', { message })
-    })
+    }
+    const result =
+      process.platform === 'win32'
+        ? await keyServiceWin.autoGetDbKey(60_000, onStatus)
+        : await keyServiceMac.autoGetDbKey(onStatus)
     if (!result.success || !result.key) return result
 
     const saved = await databaseKeyStore.save(result.key)
@@ -139,6 +181,10 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('db:getContacts', (_, filter?: string) => chat.listContacts(filter))
+
+  ipcMain.handle('db:getContactAvatars', (_, usernames: string[]) =>
+    chat.getContactAvatars(usernames)
+  )
 
   ipcMain.handle('db:getMessages', (_, userMd5: string, startTime?: number, endTime?: number) =>
     chat.listMessages(userMd5, startTime, endTime)

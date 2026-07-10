@@ -34,12 +34,33 @@ export class WechatDb {
   private wcdb4Client: Wcdb4Client
   private chatMd5ToUsername = new Map<string, string>()
 
-  constructor(rawKey: string, accountRoot?: string) {
+  static async create(rawKey: string, accountRoot?: string): Promise<WechatDb> {
+    // WCDB native init must run on the Electron main process; worker threads
+    // get -1006 from wcdb_init. Initialize the client synchronously here
+    // (and keep create() async for callers that already await it).
+    return new Promise((resolve, reject) => {
+      try {
+        const client = new Wcdb4Client(rawKey, accountRoot)
+        client.open()
+        resolve(new WechatDb(rawKey, accountRoot, client))
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
+    })
+  }
+
+  constructor(
+    rawKey: string,
+    accountRoot?: string,
+    clientOverride?: Wcdb4Client,
+    initialChatTables?: { name: string; db_number: string }[]
+  ) {
     console.log(`Initializing WechatDb with key length: ${rawKey.trim().length}`)
-    const client = new Wcdb4Client(rawKey, accountRoot)
-    client.open()
+    const client =
+      clientOverride || new Wcdb4Client(rawKey, accountRoot)
+    if (!clientOverride) client.open()
     this.wcdb4Client = client
-    for (const table of client.getChatTables()) {
+    for (const table of initialChatTables || client.getChatTables()) {
       if (table.name.startsWith('Chat_')) {
         this.chatMd5ToUsername.set(table.name.substring(5), table.db_number)
       }
