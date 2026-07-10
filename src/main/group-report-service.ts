@@ -278,6 +278,7 @@ const renderReportHtml = async (request: GroupReportExportRequest): Promise<stri
 }
 
 const captureFullPage = async (htmlPath: string, pngPath: string): Promise<string> => {
+  console.log(`[GroupReport] capture begin html=${htmlPath}`)
   const reportWindow = new BrowserWindow({
     show: false,
     width: 430,
@@ -289,6 +290,7 @@ const captureFullPage = async (htmlPath: string, pngPath: string): Promise<strin
 
   try {
     await reportWindow.loadFile(htmlPath)
+    console.log('[GroupReport] capture loaded html')
     await reportWindow.webContents.executeJavaScript(`Promise.all([
       document.fonts.ready,
       ...Array.from(document.images).map((img) => img.complete ? Promise.resolve() : new Promise((resolve) => {
@@ -296,29 +298,23 @@ const captureFullPage = async (htmlPath: string, pngPath: string): Promise<strin
         img.addEventListener('error', resolve, { once: true });
       }))
     ])`)
-    reportWindow.webContents.debugger.attach('1.3')
-    const metrics = (await reportWindow.webContents.debugger.sendCommand(
-      'Page.getLayoutMetrics'
-    )) as { cssContentSize: { width: number; height: number } }
-    const width = Math.max(430, Math.ceil(metrics.cssContentSize.width))
-    const height = Math.ceil(metrics.cssContentSize.height)
-    const screenshot = (await reportWindow.webContents.debugger.sendCommand(
-      'Page.captureScreenshot',
-      {
-        format: 'png',
-        captureBeyondViewport: true,
-        fromSurface: true,
-        clip: { x: 0, y: 0, width, height, scale: 1 }
-      }
-    )) as { data: string }
-    const png = Buffer.from(screenshot.data, 'base64')
+    console.log('[GroupReport] capture assets ready')
+    const metrics = (await reportWindow.webContents.executeJavaScript(`({
+      width: Math.ceil(Math.max(document.documentElement.scrollWidth, document.body.scrollWidth, 430)),
+      height: Math.ceil(Math.max(document.documentElement.scrollHeight, document.body.scrollHeight, 800))
+    })`)) as { width: number; height: number }
+    const width = Math.max(430, Math.min(1200, Math.ceil(metrics.width)))
+    const height = Math.max(800, Math.min(20000, Math.ceil(metrics.height)))
+    reportWindow.setContentSize(width, height)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    console.log(`[GroupReport] capture native page width=${width} height=${height}`)
+    const image = await reportWindow.webContents.capturePage({ x: 0, y: 0, width, height })
+    const png = image.toPNG()
     if (png.length < 1000) throw new Error('生成的日报图片为空')
     await fs.writeFile(pngPath, png)
-    return `data:image/png;base64,${screenshot.data}`
+    console.log(`[GroupReport] capture ok bytes=${png.length} png=${pngPath}`)
+    return `data:image/png;base64,${png.toString('base64')}`
   } finally {
-    if (reportWindow.webContents.debugger.isAttached()) {
-      reportWindow.webContents.debugger.detach()
-    }
     reportWindow.destroy()
   }
 }

@@ -38,6 +38,7 @@ declare global {
         key: string
       ) => Promise<boolean | { success: boolean; error?: string; monitoring?: boolean }>
       getContacts: (filter?: string) => Promise<Contact[]>
+      getContactAvatars: (usernames: string[]) => Promise<Record<string, string>>
       getMessages: (userMd5: string, startTime?: number, endTime?: number) => Promise<Message[]>
       getGroupSnapshot: (userMd5: string) => Promise<{
         roomId: string

@@ -12,7 +12,7 @@ interface SelfInfo {
 }
 
 const MAC_KEY_FAQ_URL = 'https://github.com/hicccc77/WeFlow/blob/main/docs/MAC-KEY-FAQ.md'
-const MESSAGE_MONITOR_DEBOUNCE_MS = 250
+const MESSAGE_MONITOR_DEBOUNCE_MS = 8000
 
 const getMessageIdentity = (message: Message): string => {
   if (message.localId) return `local:${message.localId}`
@@ -34,6 +34,8 @@ type GroupSnapshot = {
   memberCount: number
   members: { wxid: string; nickname: string; avatar: string }[]
 }
+
+type GroupMemberMeta = { nickname: string; avatar: string }
 
 const formatGroupMemberName = (member: GroupSnapshot['members'][number]): string =>
   member.nickname || member.wxid
@@ -83,6 +85,8 @@ const buildSyntheticGroupMessages = (
   return events
 }
 
+void buildSyntheticGroupMessages
+
 const sortMessagesChronologically = (items: Message[]): Message[] =>
   [...items].sort((left, right) => {
     const timeDelta = (left.createTime || 0) - (right.createTime || 0)
@@ -111,6 +115,8 @@ function App(): React.ReactElement {
   const [autoConnectSource, setAutoConnectSource] = useState<'env' | 'saved' | null>(null)
   const currentGroupSnapshotRef = React.useRef<GroupSnapshot | null>(null)
   const syntheticGroupMessagesRef = React.useRef<Record<string, Message[]>>({})
+  const groupMemberMetaRef = React.useRef<Record<string, Map<string, GroupMemberMeta>>>({})
+  const selectedContactMd5Ref = React.useRef<string>('')
 
   const refreshSelfInfo = async (): Promise<void> => {
     try {
@@ -130,6 +136,34 @@ function App(): React.ReactElement {
     const list = await window.api.getContacts()
     setContacts(list)
     setFilteredContacts(list)
+    void hydrateContactAvatars(list)
+  }
+
+  const hydrateContactAvatars = async (list: Contact[]): Promise<void> => {
+    const usernames = Array.from(
+      new Set(
+        list
+          .map((contact) => contact.m_nsUsrName)
+          .filter((username) => username && !username.startsWith('Group_') && !username.startsWith('Unknown_'))
+      )
+    )
+    const chunkSize = 60
+    for (let index = 0; index < usernames.length; index += chunkSize) {
+      const chunk = usernames.slice(index, index + chunkSize)
+      if (chunk.length === 0) continue
+      try {
+        const avatars = await window.api.getContactAvatars(chunk)
+        setContacts((current) =>
+          current.map((contact) => avatars[contact.m_nsUsrName] ? { ...contact, avatar: avatars[contact.m_nsUsrName] } : contact)
+        )
+        setFilteredContacts((current) =>
+          current.map((contact) => avatars[contact.m_nsUsrName] ? { ...contact, avatar: avatars[contact.m_nsUsrName] } : contact)
+        )
+      } catch (error) {
+        console.warn('[Contacts] avatar hydrate failed:', error)
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 50))
+    }
   }
 
   React.useEffect(() => {
@@ -149,6 +183,16 @@ function App(): React.ReactElement {
         return
       }
       if (active) {
+        setDbKey(key)
+        setAutoConnectSource(envKey ? 'env' : 'saved')
+        setDbKeyStatus(
+          envKey ? '已加载环境变量中的密钥，请手动点击 Connect' : '已加载安全保存的密钥，请手动点击 Connect'
+        )
+        setDbKeyStatusKind('normal')
+        setBootState('login')
+      }
+      if (true) return
+      if (active) {
         setBootState('connecting')
         setDbKey(key)
         setAutoConnectSource(envKey ? 'env' : 'saved')
@@ -158,7 +202,7 @@ function App(): React.ReactElement {
         setDbKeyStatusKind('normal')
       }
       try {
-        const result = await window.api.initDb(key)
+        const result: any = await window.api.initDb(key)
         if (!active) return
         const success = typeof result === 'boolean' ? result : result.success
         if (success) {
@@ -176,7 +220,7 @@ function App(): React.ReactElement {
           setDbKeyStatusKind('error')
           setBootState('login')
         }
-      } catch (error) {
+      } catch (error: any) {
         if (!active) return
         const message = error instanceof Error ? error.message : String(error)
         setDbKeyStatus(`自动连接失败: ${message}`)
@@ -253,6 +297,45 @@ function App(): React.ReactElement {
         : baseMessages
     },
     []
+  )
+
+  const applyGroupMemberMeta = React.useCallback(
+    (contact: Contact | null, baseMessages: Message[]): Message[] => {
+      if (!contact || contact.type !== 'group') return baseMessages
+      const memberMap = groupMemberMetaRef.current[contact.md5]
+      if (!memberMap || memberMap.size === 0) return baseMessages
+
+      return baseMessages.map((message) => {
+        const senderId = String(message.senderId || message.name || '').trim()
+        if (!senderId || !senderId.startsWith('wxid_')) return message
+        const member = memberMap.get(senderId)
+        if (!member) return message
+        const nickname = member.nickname && !member.nickname.startsWith('wxid_') ? member.nickname : senderId
+        return {
+          ...message,
+          name: nickname,
+          img: message.img || member.avatar
+        }
+      })
+    },
+    []
+  )
+
+  const loadGroupMemberMeta = React.useCallback(
+    async (contact: Contact | null): Promise<GroupSnapshot | null> => {
+      if (!contact || contact.type !== 'group') return null
+      const snapshot = await logGroupSnapshot(contact, 'load-member-meta')
+      if (!snapshot) return null
+      currentGroupSnapshotRef.current = snapshot
+      groupMemberMetaRef.current[contact.md5] = new Map(
+        snapshot.members.map((member) => [
+          member.wxid,
+          { nickname: member.nickname || member.wxid, avatar: member.avatar || '' }
+        ])
+      )
+      return snapshot
+    },
+    [logGroupSnapshot]
   )
 
   const handleAutoGetDbKey = async (): Promise<void> => {
@@ -338,11 +421,22 @@ function App(): React.ReactElement {
 
   const handleSelectContact = async (contact: Contact): Promise<void> => {
     setSelectedContact(contact)
+    selectedContactMd5Ref.current = contact.md5
+    currentGroupSnapshotRef.current = null
     const { startTime, endTime } = getDateRangeParams(dateRange)
     const msgs = await window.api.getMessages(contact.md5, startTime, endTime)
-    const snapshot = await logGroupSnapshot(contact, 'select-contact')
-    currentGroupSnapshotRef.current = snapshot
-    setMessages(mergeSyntheticMessages(contact, msgs, snapshot?.roomId))
+    if (selectedContactMd5Ref.current !== contact.md5) return
+    const cachedMessages = applyGroupMemberMeta(contact, mergeSyntheticMessages(contact, msgs))
+    setMessages(cachedMessages)
+    if (contact.type === 'group') {
+      void loadGroupMemberMeta(contact).then((snapshot) => {
+        if (selectedContactMd5Ref.current !== contact.md5) return
+        if (!snapshot) return
+        setMessages((current) =>
+          applyGroupMemberMeta(contact, mergeSyntheticMessages(contact, current, snapshot.roomId))
+        )
+      })
+    }
   }
 
   const handleDateRangeChange = (range: string): void => {
@@ -350,7 +444,7 @@ function App(): React.ReactElement {
     if (selectedContact) {
       const { startTime, endTime } = getDateRangeParams(range)
       window.api.getMessages(selectedContact.md5, startTime, endTime).then((nextMessages) => {
-        setMessages(mergeSyntheticMessages(selectedContact, nextMessages))
+        setMessages(applyGroupMemberMeta(selectedContact, mergeSyntheticMessages(selectedContact, nextMessages)))
       })
     }
   }
@@ -360,9 +454,16 @@ function App(): React.ReactElement {
 
     let disposed = false
     let refreshTimer: number | null = null
+    let refreshInFlight = false
+    let refreshQueued = false
     const contactMd5 = selectedContact.md5
 
     const refreshCurrentConversation = async (): Promise<void> => {
+      if (refreshInFlight) {
+        refreshQueued = true
+        return
+      }
+      refreshInFlight = true
       try {
         const range = getDateRangeParams(dateRange)
         const latestMessages = await window.api.getMessages(
@@ -370,41 +471,9 @@ function App(): React.ReactElement {
           range.startTime,
           range.endTime
         )
-        const latestSnapshot = await logGroupSnapshot(selectedContact, 'wcdb-change')
-        const syntheticEvents = buildSyntheticGroupMessages(
-          currentGroupSnapshotRef.current,
-          latestSnapshot,
-          latestMessages
-        )
-        if (latestSnapshot) {
-          currentGroupSnapshotRef.current = latestSnapshot
-          if (syntheticEvents.length) {
-            const existing = syntheticGroupMessagesRef.current[latestSnapshot.roomId] || []
-            const existingIds = new Set(existing.map((message) => message.id))
-            const appended = syntheticEvents.filter((message) => !existingIds.has(message.id))
-            if (appended.length) {
-              syntheticGroupMessagesRef.current[latestSnapshot.roomId] = [...existing, ...appended]
-              console.log(
-                `[GroupMonitor] merged synthetic messages roomId=${latestSnapshot.roomId} total=${syntheticGroupMessagesRef.current[latestSnapshot.roomId].length}`
-              )
-              if (!disposed) {
-                setMessages((current) =>
-                  sortMessagesChronologically([
-                    ...current,
-                    ...appended.filter(
-                      (message) =>
-                        !current.some((existingMessage) => existingMessage.id === message.id)
-                    )
-                  ])
-                )
-              }
-            }
-          }
-        }
-        const nextMessages = mergeSyntheticMessages(
+        const nextMessages = applyGroupMemberMeta(
           selectedContact,
-          latestMessages,
-          latestSnapshot?.roomId
+          mergeSyntheticMessages(selectedContact, latestMessages)
         )
         if (!disposed) {
           setMessages((current) =>
@@ -413,6 +482,15 @@ function App(): React.ReactElement {
         }
       } catch (error) {
         console.warn('[MessageMonitor] 刷新当前会话失败:', error)
+      }
+      refreshInFlight = false
+      if (refreshQueued && !disposed) {
+        refreshQueued = false
+        if (refreshTimer) window.clearTimeout(refreshTimer)
+        refreshTimer = window.setTimeout(() => {
+          refreshTimer = null
+          void refreshCurrentConversation()
+        }, MESSAGE_MONITOR_DEBOUNCE_MS)
       }
     }
 
@@ -435,6 +513,7 @@ function App(): React.ReactElement {
     isNativeMonitorActive,
     selectedContact,
     logGroupSnapshot,
+    applyGroupMemberMeta,
     mergeSyntheticMessages
   ])
 

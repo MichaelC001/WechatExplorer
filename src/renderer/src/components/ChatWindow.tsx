@@ -25,6 +25,25 @@ const SUMMARY_DATE_OPTIONS: { value: SummaryDateRange; label: string }[] = [
   { value: 'yesterday', label: '昨日' },
   { value: '7days', label: '最近 7 天' }
 ]
+const MAX_RENDERED_MESSAGES = 600
+const REPORT_STEP_TIMEOUT_MS = 90_000
+
+const withTimeout = async <T,>(promise: Promise<T>, label: string): Promise<T> => {
+  let timer: number | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = window.setTimeout(() => reject(new Error(`${label} 超时`)), REPORT_STEP_TIMEOUT_MS)
+  })
+  try {
+    return await Promise.race([promise, timeout])
+  } finally {
+    if (timer) window.clearTimeout(timer)
+  }
+}
+
+const isInternalName = (value?: string): boolean => {
+  const text = String(value || '').trim()
+  return !text || /^wxid_/i.test(text) || /@chatroom$/i.test(text) || /^[a-z0-9_-]{18,}$/i.test(text)
+}
 
 const SUMMARY_TYPE_OPTIONS: {
   value: SummaryMessageType
@@ -240,20 +259,47 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       const reportMessages = rangeMessages.filter((message) => allowedTypes.has(message.type))
       if (!reportMessages.length) throw new Error('当前条件下没有可总结的消息')
 
-      const input = buildGroupReportInput(reportMessages, contact, isGroupChat)
+      let memberMap = new Map<string, { nickname: string; avatar: string }>()
+      if (isGroupChat) {
+        try {
+          const snapshot = await withTimeout(window.api.getGroupSnapshot(contact.md5), '读取群成员')
+          memberMap = new Map(
+            (snapshot?.members || []).map((member) => [
+              member.wxid,
+              { nickname: member.nickname || member.wxid, avatar: member.avatar || '' }
+            ])
+          )
+        } catch (error) {
+          console.warn('[GroupReport] member snapshot failed:', error)
+        }
+      }
+      const namedReportMessages = reportMessages.map((message) => {
+        if (!isGroupChat || !isInternalName(message.name)) return message
+        const senderId = String(message.senderId || message.name || '')
+        const member = memberMap.get(senderId)
+        if (!member?.nickname || isInternalName(member.nickname)) return message
+        return { ...message, name: member.nickname, img: message.img || member.avatar }
+      })
+      const input = buildGroupReportInput(namedReportMessages, contact, isGroupChat)
       console.log('🚀 ~ AIChat ~ input:', input)
       console.log('🚀 ~ AIChat ~ input.prompt:', input.prompt)
-      const result = await window.api.aiChat(
-        [
-          { role: 'system', content: GROUP_REPORT_SYSTEM_PROMPT },
-          { role: 'user', content: input.prompt }
-        ],
-        { apiKey, model, baseURL }
+      const result = await withTimeout(
+        window.api.aiChat(
+          [
+            { role: 'system', content: GROUP_REPORT_SYSTEM_PROMPT },
+            { role: 'user', content: input.prompt }
+          ],
+          { apiKey, model, baseURL }
+        ),
+        'AI 生成日报'
       )
 
       if (!result.success || !result.data) throw new Error(result.error || 'AI 请求失败')
       const report = parseGroupDailyReport(result.data, input.topSpeakers, input.activeTimeline)
-      const exported = await window.api.exportGroupReport({ report, metadata: input.metadata })
+      const exported = await withTimeout(
+        window.api.exportGroupReport({ report, metadata: input.metadata }),
+        '日报图片导出'
+      )
       if (!exported.success || !exported.imageDataUrl || !exported.htmlPath || !exported.pngPath) {
         throw new Error(exported.error || '日报文件生成失败')
       }
@@ -285,6 +331,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       return typeMatch && contentMatch
     })
   }, [messages, contentFilter])
+  const hiddenMessageCount = Math.max(0, filteredMessages.length - MAX_RENDERED_MESSAGES)
+  const renderedMessages = React.useMemo(
+    () => filteredMessages.slice(-MAX_RENDERED_MESSAGES),
+    [filteredMessages]
+  )
 
   if (!contact) {
     return (
@@ -302,7 +353,14 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       </div>
 
       <div className="message-list wechat-message-list">
-        {filteredMessages.map((msg) => {
+        {hiddenMessageCount > 0 && (
+          <div className="wechat-system-message-row">
+            <div className="wechat-system-message">
+              已隐藏较早的 {hiddenMessageCount} 条消息，当前显示最新 {MAX_RENDERED_MESSAGES} 条
+            </div>
+          </div>
+        )}
+        {renderedMessages.map((msg) => {
           const isMine = msg.from === 'assistant'
           const isSystem = msg.from === 'system' || msg.type === '系统消息'
           const displayName = isMine

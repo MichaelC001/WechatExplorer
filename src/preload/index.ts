@@ -6,6 +6,7 @@ import { GroupReportExportRequest } from '../shared/group-report'
 const api = {
   initDb: (key: string) => ipcRenderer.invoke('db:init', key),
   getContacts: (filter?: string) => ipcRenderer.invoke('db:getContacts', filter),
+  getContactAvatars: (usernames: string[]) => ipcRenderer.invoke('db:getContactAvatars', usernames),
   getMessages: (userMd5: string, startTime?: number, endTime?: number) =>
     ipcRenderer.invoke('db:getMessages', userMd5, startTime, endTime),
   getGroupSnapshot: (userMd5: string) => ipcRenderer.invoke('db:getGroupSnapshot', userMd5),

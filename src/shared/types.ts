@@ -15,6 +15,7 @@ export interface Message {
   isSender: boolean
   img?: string
   name?: string
+  senderId?: string
   contentData?: ParsedContent
   voiceDataUrl?: string
   voiceDuration?: number
