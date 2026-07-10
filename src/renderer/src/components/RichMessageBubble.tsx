@@ -1,6 +1,7 @@
 import { ParsedContent } from '../../../shared/types'
 import { useEffect, useState } from 'react'
 import type { JSX, MouseEvent } from 'react'
+import { renderWechatEmojiText } from '../utils/wechatEmojiText'
 
 const stickerDataUrlCache = new Map<string, string>()
 
@@ -26,7 +27,9 @@ export function RichMessageBubble({ contentData }: RichMessageBubbleProps): JSX.
       return <SystemBubble data={contentData} />
     case 'unknown':
       return (
-        <div className="message-text">{(contentData as { raw?: string }).raw || '[未知消息]'}</div>
+        <div className="message-text">
+          {renderWechatEmojiText((contentData as { raw?: string }).raw || '[未知消息]')}
+        </div>
       )
     default:
       return <div className="message-text">[不支持的消息类型]</div>
@@ -207,15 +210,15 @@ function QuoteBubble({ data }: { data: Extract<ParsedContent, { type: 'quote' }>
     <div className="quote-message">
       <div className="quoted-message">
         {quotedSender && <span className="quoted-sender">{quotedSender}</span>}
-        <span className="quoted-text">{quotedText}</span>
+        <span className="quoted-text">{renderWechatEmojiText(quotedText, 18)}</span>
       </div>
-      {replyText && <div className="quote-reply">{replyText}</div>}
+      {replyText && <div className="quote-reply">{renderWechatEmojiText(replyText)}</div>}
     </div>
   )
 }
 
 function SystemBubble({ data }: { data: Extract<ParsedContent, { type: 'system' }> }): JSX.Element {
-  return <div className="message-text">{data.content || '[系统消息]'}</div>
+  return <div className="message-text">{renderWechatEmojiText(data.content || '[系统消息]')}</div>
 }
 
 function getUrlHost(url?: string): string {

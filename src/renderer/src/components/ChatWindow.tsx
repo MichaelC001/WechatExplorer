@@ -3,6 +3,7 @@ import { Message, Contact } from '../../../shared/types'
 import { VoicePlayer } from './VoicePlayer'
 import { RichMessageBubble } from './RichMessageBubble'
 import { ImageBubble } from './ImageBubble'
+import { renderWechatEmojiText } from '../utils/wechatEmojiText'
 import {
   buildGroupReportInput,
   GROUP_REPORT_SYSTEM_PROMPT,
@@ -416,7 +417,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                   ) : isRichMedia && msg.contentData ? (
                     <RichMessageBubble contentData={msg.contentData} />
                   ) : (
-                    <div className="message-text">{msg.content}</div>
+                    <div className="message-text">{renderWechatEmojiText(msg.content)}</div>
                   )}
                 </div>
                 <div className="message-meta">

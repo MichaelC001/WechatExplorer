@@ -33,6 +33,7 @@ specifiers:
   silk-wasm: ^3.7.1
   typescript: ^5.9.3
   vite: ^7.2.6
+  wechat-emojis: ^1.0.2
 
 dependencies:
   '@electron-toolkit/preload': 3.0.2_electron@43.1.0
@@ -42,6 +43,7 @@ dependencies:
   koffi: 3.1.0
   openai: 6.10.0
   silk-wasm: 3.7.1
+  wechat-emojis: 1.0.2
 
 devDependencies:
   '@electron-toolkit/eslint-config-prettier': 3.0.0_fiitszekoa4sqtbwyewxi6kyy4
@@ -4816,6 +4818,11 @@ packages:
     dependencies:
       defaults: 1.0.4
     dev: true
+
+  /wechat-emojis/1.0.2:
+    resolution: {integrity: sha512-T1drHGy92rKm/Vo7LRkU4D4wdREpVTjAMEa4gR1NB9IAyck3qmmewFSrnEEIyZfsv3SXTA7X1kt6Smt0UKVCyw==}
+    engines: {node: '>=14.0.0'}
+    dev: false
 
   /which-boxed-primitive/1.1.1:
     resolution: {integrity: sha512-TbX3mj8n0odCBFVlY8AxkqcHASw3L60jIuF8jFP78az3C2YhmGvqbHBpAjTRH2/xqYunrJ9g1jSyjCjpoWzIAA==}
