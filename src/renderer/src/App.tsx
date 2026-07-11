@@ -6,6 +6,9 @@ import { AppShell } from './components/layout/AppShell'
 import { AppPage } from './components/layout/navigation'
 import { Contact, Message } from '../../shared/types'
 
+const SIDEBAR_MIN_WIDTH = 260
+const SIDEBAR_MAX_WIDTH = 380
+
 function EyeIcon({ hidden }: { hidden: boolean }): React.ReactElement {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -711,12 +714,20 @@ function App(): React.ReactElement {
     }
   }
 
-  const [sidebarWidth, setSidebarWidth] = useState(250)
+  const [sidebarWidth, setSidebarWidth] = useState(300)
   const [isResizing, setIsResizing] = useState(false)
+  const sidebarResizeStartRef = React.useRef({ x: 0, width: 300 })
 
-  const startResizing = React.useCallback(() => {
-    setIsResizing(true)
-  }, [])
+  const startResizing = React.useCallback(
+    (mouseDownEvent: React.MouseEvent<HTMLDivElement>) => {
+      sidebarResizeStartRef.current = {
+        x: mouseDownEvent.clientX,
+        width: sidebarWidth
+      }
+      setIsResizing(true)
+    },
+    [sidebarWidth]
+  )
 
   const stopResizing = React.useCallback(() => {
     setIsResizing(false)
@@ -725,7 +736,9 @@ function App(): React.ReactElement {
   const resize = React.useCallback(
     (mouseMoveEvent: MouseEvent) => {
       if (isResizing) {
-        setSidebarWidth(mouseMoveEvent.clientX)
+        const { x, width } = sidebarResizeStartRef.current
+        const nextWidth = width + mouseMoveEvent.clientX - x
+        setSidebarWidth(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, nextWidth)))
       }
     },
     [isResizing]
@@ -853,11 +866,13 @@ function App(): React.ReactElement {
         />
         <div className="resizer" onMouseDown={startResizing} />
         <ChatWindow
-          key={`${selectedContact?.md5}-${contentFilter}`}
+          key={selectedContact?.md5}
           contact={selectedContact}
           messages={messages}
           isLoadingMessages={isMessagesLoading}
           contentFilter={contentFilter}
+          dateRange={dateRange}
+          onContentFilterChange={setContentFilter}
           onRefresh={() => selectedContact && handleSelectContact(selectedContact)}
           onRefreshData={loadContacts}
         />

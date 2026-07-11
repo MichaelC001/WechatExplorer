@@ -110,7 +110,8 @@ export function ImageBubble({
   if (loading) {
     return (
       <div className="image-bubble image-loading" onClick={handleClick}>
-        <div className="image-loading-spinner">加载中...</div>
+        <div className="image-loading-skeleton" aria-hidden />
+        <div className="image-quality-badge">加载中</div>
       </div>
     )
   }
@@ -118,7 +119,8 @@ export function ImageBubble({
   if (error) {
     return (
       <div className="image-bubble image-error" onClick={loadImage}>
-        <div className="image-error-text">{error || '图片未加载'}</div>
+        <div className="image-error-text">{error || '图片未缓存'}</div>
+        <div className="image-quality-badge">加载失败</div>
       </div>
     )
   }
@@ -126,8 +128,8 @@ export function ImageBubble({
   if (!imageUrl) {
     return (
       <div ref={containerRef} className="image-bubble image-placeholder">
-        <div className="image-placeholder-icon">图</div>
-        <div className="image-placeholder-text">加载图片中...</div>
+        <div className="image-loading-skeleton" aria-hidden />
+        <div className="image-quality-badge">加载中</div>
       </div>
     )
   }
@@ -136,7 +138,7 @@ export function ImageBubble({
     <div className="image-bubble image-loaded" onClick={handleClick}>
       <img src={imageUrl} alt="图片" className="image-content" />
       {(upgrading || isThumbnail) && (
-        <div className="image-quality-badge">{upgrading ? '查找原图...' : '缩略图'}</div>
+        <div className="image-quality-badge">{upgrading ? '正在查找原图' : '缩略图'}</div>
       )}
       <div className="image-actions">
         <button className="image-action-btn" onClick={handleCopy} title="复制图片">

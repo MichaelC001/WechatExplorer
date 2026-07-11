@@ -20,31 +20,48 @@ export function AccountSummary({
   compact = false,
   onClick
 }: AccountSummaryProps): React.ReactElement {
-  const displayName = dbReady && selfInfo ? selfInfo.nickname || selfInfo.wxid || '当前账号' : '未连接'
+  const displayName =
+    dbReady && selfInfo ? selfInfo.nickname || selfInfo.wxid || '当前账号' : '未连接'
   const subtitle = dbReady && selfInfo ? selfInfo.wxid : '打开设置'
+  const statusText = dbReady ? '数据库已连接' : '数据库未连接'
   const initial = (displayName || '?').charAt(0)
+  const title = `${displayName}\n${subtitle}`
+  const avatar = (
+    <span className="account-summary-avatar">
+      {selfInfo?.avatar ? (
+        <img src={selfInfo.avatar} alt={displayName} referrerPolicy="no-referrer" />
+      ) : (
+        initial
+      )}
+      <span className={`account-summary-status ${dbReady ? 'ready' : ''}`} aria-hidden />
+    </span>
+  )
+
+  if (compact) {
+    return (
+      <button type="button" className="account-summary compact" onClick={onClick} title={title}>
+        {avatar}
+      </button>
+    )
+  }
 
   return (
-    <button
-      type="button"
-      className={`account-summary ${compact ? 'compact' : ''}`}
-      onClick={onClick}
-      title={compact ? `${displayName}\n${subtitle}` : undefined}
-    >
-      <span className="account-summary-avatar">
-        {selfInfo?.avatar ? (
-          <img src={selfInfo.avatar} alt={displayName} referrerPolicy="no-referrer" />
-        ) : (
-          initial
-        )}
-        <span className={`account-summary-status ${dbReady ? 'ready' : ''}`} aria-hidden />
-      </span>
-      {!compact && (
-        <span className="account-summary-text">
-          <span className="account-summary-name">{displayName}</span>
-          <span className="account-summary-meta">{subtitle}</span>
+    <div className="account-summary" title={title}>
+      {avatar}
+      <span className="account-summary-text">
+        <span className="account-summary-name">{displayName}</span>
+        <span className="account-summary-meta">{subtitle}</span>
+        <span className="account-summary-state">
+          <span className={`account-summary-state-dot ${dbReady ? 'ready' : ''}`} aria-hidden />
+          {statusText}
         </span>
-      )}
-    </button>
+      </span>
+      <button type="button" className="account-summary-settings" onClick={onClick} title="设置">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
+          <path d="M19.4 15a8.2 8.2 0 0 0 .1-1l2-1.5-2-3.5-2.4 1a7.5 7.5 0 0 0-1.7-1l-.3-2.5h-4l-.4 2.5a7.5 7.5 0 0 0-1.7 1l-2.3-1-2 3.5 2 1.5a8.2 8.2 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7.5 7.5 0 0 0 1.7 1l.4 2.5h4l.3-2.5a7.5 7.5 0 0 0 1.7-1l2.4 1 2-3.5-2.1-1.5Z" />
+        </svg>
+      </button>
+    </div>
   )
 }

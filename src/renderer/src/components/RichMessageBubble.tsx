@@ -54,7 +54,7 @@ function LocationBubble({
 
   return (
     <div className="location-message" onClick={hasCoords ? handleClick : undefined}>
-      <div className="location-icon">📍</div>
+      <div className="location-icon">位置</div>
       <div className="location-info">
         <div className="location-name">{locationText}</div>
         {label && poiname && label !== poiname && <div className="location-label">{label}</div>}
@@ -126,7 +126,7 @@ function VoipBubble({ data }: { data: Extract<ParsedContent, { type: 'voip' }> }
 
   return (
     <div className="voip-message">
-      <span className="voip-icon">{isVideo ? '📹' : '📞'}</span>
+      <span className="voip-icon">{isVideo ? '视频' : '通话'}</span>
       <span className="voip-status">
         {status}
         {duration ? ` ${formatDuration(duration)}` : ''}

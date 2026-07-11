@@ -1,20 +1,24 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Message, Contact } from '../../../shared/types'
-import { VoicePlayer } from './VoicePlayer'
-import { RichMessageBubble } from './RichMessageBubble'
-import { ImageBubble } from './ImageBubble'
-import { renderWechatEmojiText } from '../utils/wechatEmojiText'
 import {
   buildGroupReportInput,
   GROUP_REPORT_SYSTEM_PROMPT,
   parseGroupDailyReport
 } from '../utils/group-report'
+import { ChatHeader } from './chat/ChatHeader'
+import { ChatStatusBar } from './chat/ChatStatusBar'
+import { DataTrustBar } from './chat/DataTrustBar'
+import { EmptyConversationState } from './chat/EmptyConversationState'
+import { ExportRange } from './chat/ExportMenu'
+import { MessageList } from './chat/MessageList'
 
 interface ChatWindowProps {
   contact: Contact | null
   messages: Message[]
   isLoadingMessages?: boolean
   contentFilter?: string
+  dateRange?: string
+  onContentFilterChange?: (keyword: string) => void
   onRefresh?: () => void
   onRefreshData?: () => void
 }
@@ -29,6 +33,43 @@ const SUMMARY_DATE_OPTIONS: { value: SummaryDateRange; label: string }[] = [
 ]
 const MAX_RENDERED_MESSAGES = 600
 const REPORT_STEP_TIMEOUT_MS = 90_000
+const DATE_RANGE_LABELS: Record<string, string> = {
+  today: '今天',
+  yesterday: '昨日',
+  '7': '7 天',
+  '30': '30 天',
+  all: '全部'
+}
+
+const formatClock = (date: Date): string =>
+  `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+
+const formatRangeDate = (date: Date, now: Date): string => {
+  const clock = formatClock(date)
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${date.getMonth() + 1} 月 ${date.getDate()} 日 ${clock}`
+  }
+  return `${date.getFullYear()} 年 ${date.getMonth() + 1} 月 ${date.getDate()} 日 ${clock}`
+}
+
+const getChatHeaderRangeLabel = (range: string): string => {
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const endOfYesterday = new Date(startOfToday.getTime() - 60_000)
+
+  if (range === 'today') return `今天 00:00—现在`
+  if (range === 'yesterday') return `昨天 00:00—${formatClock(endOfYesterday)}`
+  if (range === '7') {
+    const start = new Date(Date.now() - 7 * 86400000)
+    return `${formatRangeDate(start, now)}—现在`
+  }
+  if (range === '30') {
+    const start = new Date(Date.now() - 30 * 86400000)
+    return `${formatRangeDate(start, now)}—现在`
+  }
+  if (range === 'all') return '全部记录'
+  return DATE_RANGE_LABELS[range] || '当前范围'
+}
 
 const withTimeout = async <T,>(promise: Promise<T>, label: string): Promise<T> => {
   let timer: number | undefined
@@ -44,7 +85,9 @@ const withTimeout = async <T,>(promise: Promise<T>, label: string): Promise<T> =
 
 const isInternalName = (value?: string): boolean => {
   const text = String(value || '').trim()
-  return !text || /^wxid_/i.test(text) || /@chatroom$/i.test(text) || /^[a-z0-9_-]{18,}$/i.test(text)
+  return (
+    !text || /^wxid_/i.test(text) || /@chatroom$/i.test(text) || /^[a-z0-9_-]{18,}$/i.test(text)
+  )
 }
 
 const SUMMARY_TYPE_OPTIONS: {
@@ -79,12 +122,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   messages,
   isLoadingMessages,
   contentFilter,
+  dateRange = 'today',
+  onContentFilterChange,
   onRefresh,
   onRefreshData
 }) => {
   const isGroupChat = Boolean(
     contact?.type === 'group' || contact?.m_nsUsrName?.endsWith('@chatroom')
   )
+  const messageListRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [generatedImage, setGeneratedImage] = useState<string | null>(null)
   const [reportPaths, setReportPaths] = useState<{ htmlPath: string; pngPath: string } | null>(null)
@@ -107,6 +153,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const [model, setModel] = useState(() => localStorage.getItem('ai_model') || 'deepseek-chat')
   const [summaryDateRange, setSummaryDateRange] = useState<SummaryDateRange>('today')
   const [summaryMessageTypes, setSummaryMessageTypes] = useState<SummaryMessageType[]>(['text'])
+  const [isAtLatest, setIsAtLatest] = useState(true)
 
   const handleSaveSettings = (): void => {
     if (!summaryMessageTypes.length) {
@@ -126,13 +173,20 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     )
   }
 
-  const scrollToBottom = (): void => {
+  const scrollToBottom = useCallback((): void => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'auto' })
-  }
+    setIsAtLatest(true)
+  }, [])
+
+  const handleMessageListScroll = useCallback((event: React.UIEvent<HTMLDivElement>): void => {
+    const target = event.currentTarget
+    const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight
+    setIsAtLatest(distanceToBottom <= 24)
+  }, [])
 
   useEffect(() => {
     scrollToBottom()
-  }, [messages])
+  }, [messages, scrollToBottom])
 
   const openImagePreview = (imageUrl: string): void => {
     setPreviewImage(imageUrl)
@@ -203,7 +257,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     }
   }, [previewImage])
 
-  const handleExport = (days: number | 'all'): void => {
+  const handleExport = (days: ExportRange): void => {
     if (!messages.length) return
 
     let filtered = messages
@@ -360,150 +414,52 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     [filteredMessages]
   )
 
-  if (!contact) {
-    return (
-      <div className="chat-window">
-        <div className="empty-state">选择一条消息</div>
-      </div>
-    )
-  }
+  if (!contact) return <EmptyConversationState />
+
+  const dateRangeLabel = getChatHeaderRangeLabel(dateRange)
 
   return (
     <div className="chat-window">
-      <div className="chat-header">
-        <h2>{contact.m_nsNickName}</h2>
-        <div className="window-controls"></div>
-      </div>
-
-      <div className="message-list wechat-message-list">
-        {isLoadingMessages && (
-          <div className="message-loading-pill">正在加载聊天记录...</div>
-        )}
-        {hiddenMessageCount > 0 && (
-          <div className="wechat-system-message-row">
-            <div className="wechat-system-message">
-              已隐藏较早的 {hiddenMessageCount} 条消息，当前显示最新 {MAX_RENDERED_MESSAGES} 条
-            </div>
-          </div>
-        )}
-        {renderedMessages.map((msg) => {
-          const isMine = msg.from === 'assistant'
-          const isSystem = msg.from === 'system' || msg.type === '系统消息'
-          const displayName = isMine
-            ? '我'
-            : isGroupChat
-              ? msg.name || msg.from
-              : contact.m_nsNickName
-          const avatarSrc = isMine ? msg.img : msg.img || contact.avatar
-          const isVoice = msg.type === '语音'
-          const isImage = msg.type === '图片'
-          const isRichMedia = ['名片', '位置', '分享消息', '通话', '表情包', '系统消息'].includes(
-            msg.type
-          )
-
-          if (isSystem) {
-            return (
-              <div key={msg.id} className="wechat-system-message-row">
-                <div className="wechat-system-message">{msg.content}</div>
-                <div className="wechat-system-message-meta">{msg.datetime}</div>
-              </div>
-            )
-          }
-
-          return (
-            <div key={msg.id} className={`wechat-message-row ${isMine ? 'mine' : 'other'}`}>
-              {!isMine && showAvatar && (
-                <div className="message-avatar">
-                  {avatarSrc ? (
-                    <img src={avatarSrc} alt={displayName} referrerPolicy="no-referrer" />
-                  ) : (
-                    (displayName || '?').charAt(0)
-                  )}
-                </div>
-              )}
-              <div className="message-stack">
-                {!isMine && isGroupChat && <div className="message-sender-name">{displayName}</div>}
-                <div
-                  className={`message-bubble ${isVoice ? 'voice-bubble' : ''} ${isImage ? 'image-message-bubble' : ''}`}
-                >
-                  {isVoice && msg.sessionId ? (
-                    <VoicePlayer
-                      sessionId={msg.sessionId}
-                      localId={msg.localId || 0}
-                      createTime={msg.createTime || 0}
-                    />
-                  ) : isImage && msg.contentData && msg.contentData.type === 'image' ? (
-                    <ImageBubble
-                      imageMd5={msg.contentData.md5}
-                      imageDatName={msg.contentData.datName}
-                      sessionId={msg.sessionId}
-                      onImageClick={openImagePreview}
-                    />
-                  ) : isRichMedia && msg.contentData ? (
-                    <RichMessageBubble contentData={msg.contentData} />
-                  ) : (
-                    <div className="message-text">{renderWechatEmojiText(msg.content)}</div>
-                  )}
-                </div>
-                <div className="message-meta">
-                  <span>{msg.datetime}</span>
-                  <span>{msg.type}</span>
-                </div>
-              </div>
-              {isMine && showAvatar && (
-                <div className="message-avatar mine-avatar">
-                  {avatarSrc ? <img src={avatarSrc} alt="我" referrerPolicy="no-referrer" /> : '我'}
-                </div>
-              )}
-            </div>
-          )
-        })}
-        <div ref={messagesEndRef} />
-      </div>
-
-      <div className="chat-toolbar">
-        <label
-          style={{ marginRight: '10px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
-        >
-          <input
-            type="checkbox"
-            checked={showAvatar}
-            onChange={(e) => setShowAvatar(e.target.checked)}
-            style={{ marginRight: '5px' }}
-          />
-          显示头像
-        </label>
-        <button className="toolbar-btn" onClick={onRefresh}>
-          🔄 刷新聊天记录
-        </button>
-        <button className="toolbar-btn" onClick={onRefreshData}>
-          🔄 刷新数据
-        </button>
-        <button className="toolbar-btn" onClick={() => handleExport('all')}>
-          📤 导出全部
-        </button>
-        <button className="toolbar-btn" onClick={() => handleExport(0)}>
-          🕒 导出今日
-        </button>
-        <button className="toolbar-btn" onClick={() => handleExport(1)}>
-          📅 导出昨日
-        </button>
-        <button className="toolbar-btn" onClick={() => handleExport(7)}>
-          📅 导出近7天
-        </button>
-        <button className="toolbar-btn" onClick={() => handleExport(30)}>
-          📅 导出近30天
-        </button>
-        <button className="toolbar-btn" onClick={() => setShowSettingsModal(true)}>
-          🤖 AI总结群聊
-        </button>
-      </div>
+      <ChatHeader
+        contact={contact}
+        isGroupChat={isGroupChat}
+        dateRangeLabel={dateRangeLabel}
+        loadedCount={messages.length}
+        filteredCount={filteredMessages.length}
+        contentFilter={contentFilter || ''}
+        isAiLoading={isLoading}
+        canExport={messages.length > 0}
+        onContentFilterChange={onContentFilterChange || (() => undefined)}
+        onRefresh={onRefresh}
+        onRefreshData={onRefreshData}
+        onExport={handleExport}
+        onOpenAiSettings={() => setShowSettingsModal(true)}
+      />
+      <DataTrustBar messageCount={messages.length} />
+      <MessageList
+        contact={contact}
+        messages={renderedMessages}
+        hiddenMessageCount={hiddenMessageCount}
+        isLoadingMessages={isLoadingMessages}
+        isGroupChat={isGroupChat}
+        showAvatar={showAvatar}
+        listRef={messageListRef}
+        bottomRef={messagesEndRef}
+        onScroll={handleMessageListScroll}
+        onImageClick={openImagePreview}
+      />
+      <ChatStatusBar
+        count={renderedMessages.length}
+        showAvatar={showAvatar}
+        isAtLatest={isAtLatest}
+        onShowAvatarChange={setShowAvatar}
+        onJumpToLatest={scrollToBottom}
+      />
 
       {/* 加载模态框 */}
       {isLoading && (
         <div className="modal-overlay">
           <div className="modal-content" style={{ textAlign: 'center', minWidth: '200px' }}>
-            <div style={{ fontSize: '40px', marginBottom: '20px' }}>🤖</div>
             <div style={{ fontSize: '16px', color: '#333' }}>正在生成群聊日报...</div>
             <div style={{ fontSize: '12px', color: '#999', marginTop: '10px' }}>
               正在分析记录、处理头像并生成 HTML 和长图
@@ -537,7 +493,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                   borderRadius: '4px'
                 }}
               >
-                📋 复制图片
+                复制图片
               </button>
               {reportPaths && (
                 <button

@@ -176,7 +176,7 @@ export function VoicePlayer({
     return (
       <div className="voice-message voice-error" onClick={handlePlayPause}>
         <span className="voice-icon">▶</span>
-        <span className="voice-error-text">[语音]</span>
+        <span className="voice-error-text">当前版本暂不支持播放</span>
       </div>
     )
   }
