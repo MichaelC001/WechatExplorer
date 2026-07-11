@@ -651,6 +651,16 @@ export class Wcdb4Client {
       console.warn(`[WCDB4] cursor messages failed username=${username}:`, error)
     }
 
+    if (maxRows) {
+      const tableRows = this.getMessagesByTableScan(username, startTime, endTime, maxRows)
+      if (tableRows.length > 0) {
+        console.log(
+          `[WCDB4] getMessages table scan ok username=${username} rows=${tableRows.length} cost=${Date.now() - startedAt}ms`
+        )
+        return tableRows
+      }
+    }
+
     if (!this.wcdbGetMessages) return []
 
     const allRows: Record<string, unknown>[] = []
@@ -806,11 +816,12 @@ export class Wcdb4Client {
     const cursorOut: WcdbHandleOut = [0]
     const begin = this.normalizeTimestamp(startTime || 0)
     const end = this.normalizeTimestamp(endTime || 0)
+    const ascending = limit ? 0 : 1
     const openResult = this.wcdbOpenMessageCursor(
       handle,
       username,
       batchSize,
-      1,
+      ascending,
       begin,
       end,
       cursorOut
