@@ -740,11 +740,25 @@ body {
 .login-input-toggle {
   position: absolute;
   right: 8px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 4px 8px;
-  font-size: 18px;
+  padding: 0;
+  color: #111827;
+}
+
+.login-input-toggle svg {
+  width: 20px;
+  height: 20px;
+}
+
+.login-input-toggle:hover {
+  color: #07c160;
 }
 
 .login-btn {

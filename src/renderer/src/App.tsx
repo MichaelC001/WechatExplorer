@@ -4,6 +4,38 @@ import ChatWindow from './components/ChatWindow'
 import { SettingsPanel } from './components/SettingsPanel'
 import { Contact, Message } from '../../shared/types'
 
+function EyeIcon({ hidden }: { hidden: boolean }): React.ReactElement {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle
+        cx="12"
+        cy="12"
+        r="3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      {hidden && (
+        <path
+          d="M4 4l16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      )}
+    </svg>
+  )
+}
+
 interface SelfInfo {
   wxid: string
   nickname: string
@@ -760,7 +792,7 @@ function App(): React.ReactElement {
               onClick={() => setShowDbKey(!showDbKey)}
               title={showDbKey ? '隐藏密钥' : '显示密钥'}
             >
-              {showDbKey ? '隐藏' : '显示'}
+              <EyeIcon hidden={showDbKey} />
             </button>
           </div>
           <button

@@ -124,6 +124,16 @@ export function getBootstrapCache(accountRoot?: string): {
   }
 }
 
+function isRawContactName(contact: Contact): boolean {
+  const name = String(contact.m_nsNickName || '').trim()
+  const username = String(contact.m_nsUsrName || '').trim()
+  if (!name) return true
+  if (name === username) return true
+  if (name.endsWith('@chatroom')) return true
+  if (name.startsWith('Group_') || name.startsWith('Unknown_')) return true
+  return false
+}
+
 export function mergeCachedContactAvatars(accountRoot: string, contacts: Contact[]): Contact[] {
   const cache = readCacheFile(accountRoot)
   if (!cache?.contacts?.length) return contacts
@@ -132,12 +142,23 @@ export function mergeCachedContactAvatars(accountRoot: string, contacts: Contact
       .filter((contact) => contact.m_nsUsrName && contact.avatar)
       .map((contact) => [contact.m_nsUsrName, contact.avatar as string])
   )
-  if (avatarByUsername.size === 0) return contacts
-  return contacts.map((contact) =>
-    contact.avatar || !avatarByUsername.has(contact.m_nsUsrName)
-      ? contact
-      : { ...contact, avatar: avatarByUsername.get(contact.m_nsUsrName) }
+  const nameByUsername = new Map(
+    cache.contacts
+      .filter((contact) => contact.m_nsUsrName && contact.m_nsNickName && !isRawContactName(contact))
+      .map((contact) => [contact.m_nsUsrName, contact.m_nsNickName])
   )
+  if (avatarByUsername.size === 0 && nameByUsername.size === 0) return contacts
+  return contacts.map((contact) => ({
+    ...contact,
+    avatar:
+      contact.avatar || !avatarByUsername.has(contact.m_nsUsrName)
+        ? contact.avatar
+        : avatarByUsername.get(contact.m_nsUsrName),
+    m_nsNickName:
+      !isRawContactName(contact) || !nameByUsername.has(contact.m_nsUsrName)
+        ? contact.m_nsNickName
+        : nameByUsername.get(contact.m_nsUsrName) || contact.m_nsNickName
+  }))
 }
 
 export function saveBootstrapSelf(accountRoot: string, self: CachedSelfInfo): void {
@@ -156,11 +177,22 @@ export function saveBootstrapContacts(accountRoot: string, contacts: Contact[]):
       .filter((contact) => contact.m_nsUsrName && contact.avatar)
       .map((contact) => [contact.m_nsUsrName, contact.avatar as string])
   )
-  cache.contacts = contacts.map((contact) =>
-    contact.avatar || !avatarByUsername.has(contact.m_nsUsrName)
-      ? contact
-      : { ...contact, avatar: avatarByUsername.get(contact.m_nsUsrName) }
+  const nameByUsername = new Map(
+    (cache.contacts || [])
+      .filter((contact) => contact.m_nsUsrName && contact.m_nsNickName && !isRawContactName(contact))
+      .map((contact) => [contact.m_nsUsrName, contact.m_nsNickName])
   )
+  cache.contacts = contacts.map((contact) => ({
+    ...contact,
+    avatar:
+      contact.avatar || !avatarByUsername.has(contact.m_nsUsrName)
+        ? contact.avatar
+        : avatarByUsername.get(contact.m_nsUsrName),
+    m_nsNickName:
+      !isRawContactName(contact) || !nameByUsername.has(contact.m_nsUsrName)
+        ? contact.m_nsNickName
+        : nameByUsername.get(contact.m_nsUsrName) || contact.m_nsNickName
+  }))
   cache.updatedAt = Date.now()
   writeCacheFile(cache)
 }

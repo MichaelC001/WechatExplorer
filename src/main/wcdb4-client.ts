@@ -601,6 +601,11 @@ export class Wcdb4Client {
       .map((row) => this.normalizeSession(row))
       .filter((session) => session.username)
 
+    this.hydrateDisplayNames(
+      sessions
+        .filter((session) => this.shouldHydrateSessionDisplayName(session))
+        .map((session) => session.username)
+    )
     this.cachedSessions = sessions.map((session) => ({
       ...session,
       nickname: this.displayNameCache.get(session.username) || session.nickname || session.username
@@ -1539,6 +1544,17 @@ export class Wcdb4Client {
       senderAvatar: sender ? this.avatarCache.get(sender) : undefined,
       raw: row
     }
+  }
+
+  private shouldHydrateSessionDisplayName(session: Wcdb4Session): boolean {
+    const username = String(session.username || '').trim()
+    const nickname = String(session.nickname || '').trim()
+    if (!username) return false
+    if (!nickname) return true
+    if (nickname === username) return true
+    if (nickname.endsWith('@chatroom')) return true
+    if (nickname.startsWith('Group_') || nickname.startsWith('Unknown_')) return true
+    return false
   }
 
   private hydrateDisplayNames(usernames: string[]): void {
