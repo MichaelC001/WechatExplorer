@@ -131,7 +131,7 @@ export class ImageDecryptService {
           join(attachDir, dir1, dir2, 'Image', variant),
           join(attachDir, dir1, dir2, 'image', variant)
         ]
-        const found = candidates.find((candidate) => existsSync(candidate))
+        const found = this.getLargestExistingPath(candidates, true)
         if (found) {
           console.log('[ImageDecrypt] prefix path hit:', found)
           return found
@@ -157,9 +157,10 @@ export class ImageDecryptService {
             const imgDir = join(attachDir, sessDir, month, sub)
             if (!existsSync(imgDir)) continue
 
-            const found = variants
-              .map((variant) => join(imgDir, variant))
-              .find((candidate) => existsSync(candidate))
+            const found = this.getLargestExistingPath(
+              variants.map((variant) => join(imgDir, variant)),
+              true
+            )
             if (found) {
               console.log('[ImageDecrypt] found at:', found)
               return found
@@ -418,9 +419,9 @@ export class ImageDecryptService {
     const base = this.normalizeDatBase(baseName)
     if (!base) return []
     return [
-      `${base}_h.dat`,
       `${base}.dat`,
       `${base}_hd.dat`,
+      `${base}_h.dat`,
       `${base}_c.dat`,
       `${base}_t.dat`,
       `${base}.thumb.dat`,
@@ -435,11 +436,33 @@ export class ImageDecryptService {
     const ordered = allowThumbnail
       ? variants
       : variants.filter((name) => !this.isThumbnailName(name))
-    for (const variant of ordered) {
-      const candidate = join(actualDir, variant)
-      if (existsSync(candidate)) return candidate
-    }
+    const largest = this.getLargestExistingPath(
+      ordered.map((variant) => join(actualDir, variant)),
+      allowThumbnail
+    )
+    if (largest) return largest
     return inputPath
+  }
+
+  private getLargestExistingPath(paths: string[], allowThumbnail: boolean): string | null {
+    const toSized = (candidates: string[]): { candidate: string; size: number }[] =>
+      candidates
+        .filter((candidate) => existsSync(candidate))
+        .map((candidate) => {
+          try {
+            return { candidate, size: statSync(candidate).size }
+          } catch {
+            return { candidate, size: 0 }
+          }
+        })
+        .sort((left, right) => right.size - left.size)
+
+    const nonThumb = toSized(paths.filter((candidate) => !this.isThumbnailName(basename(candidate))))
+    if (nonThumb[0]) return nonThumb[0].candidate
+    if (!allowThumbnail) return null
+
+    const existing = toSized(paths)
+    return existing[0]?.candidate || null
   }
 
   private isThumbnailName(fileName: string): boolean {

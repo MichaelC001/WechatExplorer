@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+﻿import React, { useState } from 'react'
 import { Sidebar } from './components/Sidebar'
 import ChatWindow from './components/ChatWindow'
 import { SettingsPanel } from './components/SettingsPanel'
@@ -13,6 +13,7 @@ interface SelfInfo {
 
 const MAC_KEY_FAQ_URL = 'https://github.com/hicccc77/WeFlow/blob/main/docs/MAC-KEY-FAQ.md'
 const MESSAGE_MONITOR_DEBOUNCE_MS = 8000
+const VIEW_MESSAGE_LIMIT = 600
 
 const getMessageIdentity = (message: Message): string => {
   if (message.localId) return `local:${message.localId}`
@@ -36,6 +37,12 @@ type GroupSnapshot = {
 }
 
 type GroupMemberMeta = { nickname: string; avatar: string }
+type StartupProgress = {
+  title: string
+  subtitle: string
+  detail?: string
+  percent?: number
+}
 
 const formatGroupMemberName = (member: GroupSnapshot['members'][number]): string =>
   member.nickname || member.wxid
@@ -100,8 +107,9 @@ function App(): React.ReactElement {
   const [contacts, setContacts] = useState<Contact[]>([])
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [isMessagesLoading, setIsMessagesLoading] = useState(false)
   const [filteredContacts, setFilteredContacts] = useState<Contact[]>([])
-  const [dateRange, setDateRange] = useState('today') // 默认为今天
+  const [dateRange, setDateRange] = useState('today') // 默认今天
   const [contentFilter, setContentFilter] = useState('')
   const [isFetchingDbKey, setIsFetchingDbKey] = useState(false)
   const [dbKeyStatus, setDbKeyStatus] = useState('')
@@ -113,10 +121,15 @@ function App(): React.ReactElement {
   const [isNativeMonitorActive, setIsNativeMonitorActive] = useState(false)
   const [bootState, setBootState] = useState<'loading' | 'connecting' | 'login'>('loading')
   const [autoConnectSource, setAutoConnectSource] = useState<'env' | 'saved' | null>(null)
+  const [startupProgress, setStartupProgress] = useState<StartupProgress | null>(null)
   const currentGroupSnapshotRef = React.useRef<GroupSnapshot | null>(null)
   const syntheticGroupMessagesRef = React.useRef<Record<string, Message[]>>({})
   const groupMemberMetaRef = React.useRef<Record<string, Map<string, GroupMemberMeta>>>({})
   const selectedContactMd5Ref = React.useRef<string>('')
+  const contactAvatarHydrationRunRef = React.useRef(0)
+
+  const waitForPaint = (): Promise<void> =>
+    new Promise((resolve) => window.setTimeout(resolve, 80))
 
   const refreshSelfInfo = async (): Promise<void> => {
     try {
@@ -132,27 +145,80 @@ function App(): React.ReactElement {
     }
   }
 
-  const loadContacts = async (): Promise<void> => {
+  const loadBootstrapCache = async (): Promise<boolean> => {
+    try {
+      const cache = await window.api.getBootstrapCache()
+      if (!cache) return false
+      if (cache.contacts.length) {
+        setContacts(cache.contacts)
+        setFilteredContacts(cache.contacts)
+      }
+      if (cache.self) setSelfInfo(cache.self)
+      return Boolean(cache.contacts.length || cache.self)
+    } catch (error) {
+      console.warn('[BootstrapCache] 加载失败:', error)
+      return false
+    }
+  }
+
+  const loadContacts = async (options?: {
+    waitForAvatars?: boolean
+    onProgress?: (message: string, percent?: number) => void
+  }): Promise<void> => {
+    options?.onProgress?.('正在加载联系人...', 35)
     const list = await window.api.getContacts()
     setContacts(list)
     setFilteredContacts(list)
-    void hydrateContactAvatars(list)
+    const runId = ++contactAvatarHydrationRunRef.current
+    const hydrate = (): Promise<void> => hydrateContactAvatars(list, runId, options?.onProgress)
+    if (options?.waitForAvatars) {
+      await hydrate()
+    } else {
+      window.setTimeout(() => {
+        void hydrate()
+      }, 1500)
+    }
   }
 
-  const hydrateContactAvatars = async (list: Contact[]): Promise<void> => {
+  const hydrateContactAvatars = async (
+    list: Contact[],
+    runId: number,
+    onProgress?: (message: string, percent?: number) => void
+  ): Promise<void> => {
     const usernames = Array.from(
       new Set(
         list
           .map((contact) => contact.m_nsUsrName)
-          .filter((username) => username && !username.startsWith('Group_') && !username.startsWith('Unknown_'))
+          .filter((username, index) => {
+            const contact = list[index]
+            return (
+              username &&
+              !contact.avatar &&
+              !username.startsWith('Group_') &&
+              !username.startsWith('Unknown_')
+            )
+          })
       )
     )
-    const chunkSize = 60
+    onProgress?.(
+      usernames.length ? `正在加载头像 0/${usernames.length}...` : '头像缓存已就绪',
+      usernames.length ? 55 : 90
+    )
+    let loadedCount = 0
+    const chunkSize = 8
     for (let index = 0; index < usernames.length; index += chunkSize) {
+      if (runId !== contactAvatarHydrationRunRef.current) return
       const chunk = usernames.slice(index, index + chunkSize)
       if (chunk.length === 0) continue
       try {
         const avatars = await window.api.getContactAvatars(chunk)
+        if (runId !== contactAvatarHydrationRunRef.current) return
+        loadedCount += chunk.length
+        onProgress?.(
+          `正在加载头像 ${Math.min(loadedCount, usernames.length)}/${usernames.length}...`,
+          55 + Math.round((Math.min(loadedCount, usernames.length) / usernames.length) * 35)
+        )
+        if (Object.keys(avatars).length === 0) continue
         setContacts((current) =>
           current.map((contact) => avatars[contact.m_nsUsrName] ? { ...contact, avatar: avatars[contact.m_nsUsrName] } : contact)
         )
@@ -162,16 +228,17 @@ function App(): React.ReactElement {
       } catch (error) {
         console.warn('[Contacts] avatar hydrate failed:', error)
       }
-      await new Promise((resolve) => window.setTimeout(resolve, 50))
+      await new Promise((resolve) => window.setTimeout(resolve, 150))
     }
+    if (usernames.length) onProgress?.('头像加载完成', 90)
   }
 
   React.useEffect(() => {
     let active = true
     const attemptAutoConnect = async (): Promise<void> => {
-      // 优先级 1:构建期环境变量 VITE_DB_KEY(本地开发/打包时硬编码的密钥)
+      // 优先级 1: 构建期环境变量 VITE_DB_KEY（本地开发用）
       const envKey = String(import.meta.env.VITE_DB_KEY || '').trim()
-      // 优先级 2:上一次保存到 safeStorage 的密钥
+      // 优先级 2: 上一次保存到 safeStorage 的密钥
       let savedKey = ''
       if (!envKey) {
         const result = await window.api.getSavedDbKey()
@@ -197,7 +264,7 @@ function App(): React.ReactElement {
         setDbKey(key)
         setAutoConnectSource(envKey ? 'env' : 'saved')
         setDbKeyStatus(
-          envKey ? '检测到环境变量中的密钥,正在自动连接...' : '已加载安全保存的密钥,正在自动连接...'
+          envKey ? '检测到环境变量中的密钥，正在自动连接...' : '已加载安全保存的密钥，正在自动连接...'
         )
         setDbKeyStatusKind('normal')
       }
@@ -215,7 +282,7 @@ function App(): React.ReactElement {
         } else {
           const error = typeof result === 'boolean' ? '' : result.error
           setDbKeyStatus(
-            `自动连接失败,请重新输入${error ? `: ${error}` : ''}`
+            `自动连接失败，请重新输入${error ? `: ${error}` : ''}`
           )
           setDbKeyStatusKind('error')
           setBootState('login')
@@ -249,22 +316,62 @@ function App(): React.ReactElement {
   const handleLogin = async (keyInput?: string): Promise<void> => {
     const keyToUse = keyInput || dbKey
     if (!keyToUse) return
+    setBootState('connecting')
+    setStartupProgress({
+      title: '正在连接数据库...',
+      subtitle: '正在初始化微信数据',
+      detail: '请稍候',
+      percent: 8
+    })
     try {
+      setStartupProgress({
+        title: '正在连接数据库...',
+        subtitle: '正在初始化微信数据',
+        detail: '正在打开 WCDB 数据库',
+        percent: 15
+      })
       const result = await window.api.initDb(keyToUse)
       const success = typeof result === 'boolean' ? result : result.success
       if (success) {
         setIsNativeMonitorActive(typeof result !== 'boolean' && result.monitoring === true)
-        setIsAuthenticated(true)
-        // 手动输入也持久化,下次启动可自动连接(参考 WeFlow)
+        setStartupProgress({
+          title: '正在读取缓存...',
+          subtitle: '正在恢复上次联系人和头像',
+          detail: '正在读取本地缓存',
+          percent: 25
+        })
+        const hasBootstrapCache = await loadBootstrapCache()
+        // 持久化手动输入的密钥，供下次启动继续使用
         void window.api.saveDbKey(keyToUse).catch(() => undefined)
-        loadContacts()
+        setStartupProgress({
+          title: '正在加载账号信息...',
+          subtitle: '即将进入 WechatExplorer',
+          detail: '正在读取当前账号信息',
+          percent: 95
+        })
         void refreshSelfInfo()
+        setStartupProgress({
+          title: '加载完成',
+          subtitle: '正在进入主页面',
+          detail: '联系人和头像已准备好',
+          percent: 100
+        })
+        setIsAuthenticated(true)
+        setBootState('login')
+        window.setTimeout(() => {
+          setStartupProgress(null)
+          if (!hasBootstrapCache) void loadContacts({ waitForAvatars: false })
+        }, 500)
       } else {
         const error = typeof result === 'boolean' ? '' : result.error
+        setBootState('login')
+        setStartupProgress(null)
         alert(`Failed to open database.${error ? `\n\n${error}` : '\nCheck your key.'}`)
       }
     } catch (error) {
       console.error(error)
+      setBootState('login')
+      setStartupProgress(null)
       alert('Error connecting to database')
     }
   }
@@ -307,10 +414,17 @@ function App(): React.ReactElement {
 
       return baseMessages.map((message) => {
         const senderId = String(message.senderId || message.name || '').trim()
-        if (!senderId || !senderId.startsWith('wxid_')) return message
+        if (!senderId) return message
         const member = memberMap.get(senderId)
         if (!member) return message
-        const nickname = member.nickname && !member.nickname.startsWith('wxid_') ? member.nickname : senderId
+        const rawNickname = String(member.nickname || '').trim()
+        const nickname =
+          rawNickname &&
+          rawNickname !== senderId &&
+          !rawNickname.startsWith('wxid_') &&
+          !/^[a-z]{2,}\d{4,}$/i.test(rawNickname)
+            ? rawNickname
+            : senderId
         return {
           ...message,
           name: nickname,
@@ -423,19 +537,41 @@ function App(): React.ReactElement {
     setSelectedContact(contact)
     selectedContactMd5Ref.current = contact.md5
     currentGroupSnapshotRef.current = null
+    setIsMessagesLoading(true)
     const { startTime, endTime } = getDateRangeParams(dateRange)
-    const msgs = await window.api.getMessages(contact.md5, startTime, endTime)
+    const cachedMsgs = await window.api.getCachedMessages(contact.md5, startTime, endTime)
     if (selectedContactMd5Ref.current !== contact.md5) return
-    const cachedMessages = applyGroupMemberMeta(contact, mergeSyntheticMessages(contact, msgs))
-    setMessages(cachedMessages)
-    if (contact.type === 'group') {
-      void loadGroupMemberMeta(contact).then((snapshot) => {
-        if (selectedContactMd5Ref.current !== contact.md5) return
-        if (!snapshot) return
-        setMessages((current) =>
-          applyGroupMemberMeta(contact, mergeSyntheticMessages(contact, current, snapshot.roomId))
+    if (cachedMsgs.length) {
+      setMessages(
+        applyGroupMemberMeta(
+          contact,
+          mergeSyntheticMessages(contact, cachedMsgs.slice(-VIEW_MESSAGE_LIMIT))
         )
+      )
+    } else {
+      setMessages([])
+    }
+    await waitForPaint()
+    try {
+      const msgs = await window.api.getMessages(contact.md5, startTime, endTime, {
+        limit: VIEW_MESSAGE_LIMIT
       })
+      if (selectedContactMd5Ref.current !== contact.md5) return
+      const cachedMessages = applyGroupMemberMeta(contact, mergeSyntheticMessages(contact, msgs))
+      setMessages(cachedMessages)
+      if (contact.type === 'group') {
+        window.setTimeout(() => {
+          void loadGroupMemberMeta(contact).then((snapshot) => {
+            if (selectedContactMd5Ref.current !== contact.md5) return
+            if (!snapshot) return
+            setMessages((current) =>
+              applyGroupMemberMeta(contact, mergeSyntheticMessages(contact, current, snapshot.roomId))
+            )
+          })
+        }, 120)
+      }
+    } finally {
+      if (selectedContactMd5Ref.current === contact.md5) setIsMessagesLoading(false)
     }
   }
 
@@ -443,8 +579,22 @@ function App(): React.ReactElement {
     setDateRange(range)
     if (selectedContact) {
       const { startTime, endTime } = getDateRangeParams(range)
-      window.api.getMessages(selectedContact.md5, startTime, endTime).then((nextMessages) => {
+      window.api.getCachedMessages(selectedContact.md5, startTime, endTime).then((cachedMessages) => {
+        if (!cachedMessages.length) return
+        setMessages(
+          applyGroupMemberMeta(
+            selectedContact,
+            mergeSyntheticMessages(selectedContact, cachedMessages.slice(-VIEW_MESSAGE_LIMIT))
+          )
+        )
+      })
+      setIsMessagesLoading(true)
+      window.api.getMessages(selectedContact.md5, startTime, endTime, { limit: VIEW_MESSAGE_LIMIT }).then((nextMessages) => {
         setMessages(applyGroupMemberMeta(selectedContact, mergeSyntheticMessages(selectedContact, nextMessages)))
+        setIsMessagesLoading(false)
+      }).catch((error) => {
+        console.warn('[Messages] date range load failed:', error)
+        setIsMessagesLoading(false)
       })
     }
   }
@@ -469,7 +619,8 @@ function App(): React.ReactElement {
         const latestMessages = await window.api.getMessages(
           contactMd5,
           range.startTime,
-          range.endTime
+          range.endTime,
+          { limit: VIEW_MESSAGE_LIMIT }
         )
         const nextMessages = applyGroupMemberMeta(
           selectedContact,
@@ -561,19 +712,31 @@ function App(): React.ReactElement {
   }, [resize, stopResizing])
 
   if (!isAuthenticated && bootState !== 'login') {
+    const title =
+      startupProgress?.title || (bootState === 'connecting' ? '正在自动连接数据库...' : '正在准备...')
+    const subtitle =
+      startupProgress?.subtitle ||
+      (bootState === 'connecting'
+        ? autoConnectSource === 'env'
+          ? '检测到环境变量中的密钥'
+          : '使用上次安全保存的密钥'
+        : 'WechatExplorer')
     return (
       <div className="boot-splash">
         <div className="boot-splash-spinner" aria-hidden />
-        <div className="boot-splash-title">
-          {bootState === 'connecting' ? '正在自动连接数据库...' : '正在准备...'}
-        </div>
-        <div className="boot-splash-subtitle">
-          {bootState === 'connecting'
-            ? autoConnectSource === 'env'
-              ? '检测到环境变量中的密钥'
-              : '使用上次安全保存的密钥'
-            : 'WechatExplorer'}
-        </div>
+        <div className="boot-splash-title">{title}</div>
+        <div className="boot-splash-subtitle">{subtitle}</div>
+        {startupProgress?.detail && (
+          <div className="boot-splash-detail">{startupProgress.detail}</div>
+        )}
+        {typeof startupProgress?.percent === 'number' && (
+          <div className="boot-splash-progress" aria-label="加载进度">
+            <div
+              className="boot-splash-progress-bar"
+              style={{ width: `${Math.max(0, Math.min(100, startupProgress.percent))}%` }}
+            />
+          </div>
+        )}
       </div>
     )
   }
@@ -597,7 +760,7 @@ function App(): React.ReactElement {
               onClick={() => setShowDbKey(!showDbKey)}
               title={showDbKey ? '隐藏密钥' : '显示密钥'}
             >
-              {showDbKey ? '👁️' : '👁️‍🗨️'}
+              {showDbKey ? '隐藏' : '显示'}
             </button>
           </div>
           <button
@@ -654,6 +817,7 @@ function App(): React.ReactElement {
         key={`${selectedContact?.md5}-${contentFilter}`}
         contact={selectedContact}
         messages={messages}
+        isLoadingMessages={isMessagesLoading}
         contentFilter={contentFilter}
         onRefresh={() => selectedContact && handleSelectContact(selectedContact)}
         onRefreshData={loadContacts}

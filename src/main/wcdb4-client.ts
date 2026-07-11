@@ -24,6 +24,10 @@ export interface Wcdb4Message {
   raw: Record<string, unknown>
 }
 
+export interface Wcdb4MessageQueryOptions {
+  limit?: number
+}
+
 export interface Wcdb4GroupMember {
   m_nsUsrName: string
   nickname: string
@@ -597,8 +601,6 @@ export class Wcdb4Client {
       .map((row) => this.normalizeSession(row))
       .filter((session) => session.username)
 
-    const sessionUsernames = sessions.map((session) => session.username)
-    this.hydrateDisplayNames(sessionUsernames)
     this.cachedSessions = sessions.map((session) => ({
       ...session,
       nickname: this.displayNameCache.get(session.username) || session.nickname || session.username
@@ -621,13 +623,19 @@ export class Wcdb4Client {
     return this.cachedChatTables
   }
 
-  getMessages(username: string, startTime?: number, endTime?: number): Wcdb4Message[] {
+  getMessages(
+    username: string,
+    startTime?: number,
+    endTime?: number,
+    options: Wcdb4MessageQueryOptions = {}
+  ): Wcdb4Message[] {
     const startedAt = Date.now()
+    const maxRows = this.normalizeMessageLimit(options.limit)
     console.log(
-      `[WCDB4] getMessages begin username=${username} start=${startTime || 0} end=${endTime || 0}`
+      `[WCDB4] getMessages begin username=${username} start=${startTime || 0} end=${endTime || 0} limit=${maxRows || 0}`
     )
     try {
-      const cursorMessages = this.getMessagesByCursor(username, startTime, endTime)
+      const cursorMessages = this.getMessagesByCursor(username, startTime, endTime, maxRows)
       if (cursorMessages) {
         console.log(
           `[WCDB4] getMessages cursor ok username=${username} rows=${cursorMessages.length} cost=${Date.now() - startedAt}ms`
@@ -660,11 +668,12 @@ export class Wcdb4Client {
       const batch = Array.isArray(rows) ? rows : []
       allRows.push(...batch)
       if (batch.length < limit) break
+      if (maxRows && allRows.length >= maxRows) break
       offset += limit
     }
 
     if (allRows.length === 0) {
-      const tableRows = this.getMessagesByTableScan(username, startTime, endTime)
+      const tableRows = this.getMessagesByTableScan(username, startTime, endTime, maxRows)
       if (tableRows.length > 0) {
         console.log(
           `[WCDB4] getMessages table scan ok username=${username} rows=${tableRows.length} cost=${Date.now() - startedAt}ms`
@@ -673,7 +682,7 @@ export class Wcdb4Client {
       }
     }
 
-    const messages = this.finalizeMessages(username, allRows, startTime, endTime)
+    const messages = this.finalizeMessages(username, allRows, startTime, endTime, maxRows)
     console.log(
       `[WCDB4] getMessages direct ok username=${username} rows=${messages.length} cost=${Date.now() - startedAt}ms`
     )
@@ -691,7 +700,8 @@ export class Wcdb4Client {
   private getMessagesByTableScan(
     username: string,
     startTime?: number,
-    endTime?: number
+    endTime?: number,
+    limit?: number
   ): Wcdb4Message[] {
     if (!this.wcdbGetMessageTableStats || !this.wcdbExecQuery) return []
 
@@ -722,7 +732,9 @@ export class Wcdb4Client {
 
     for (const table of tables) {
       try {
-        const sql = `SELECT * FROM ${this.quoteSqlIdentifier(table.tableName)}${whereSql} ORDER BY "create_time" ASC LIMIT 5000`
+        const order = limit ? 'DESC' : 'ASC'
+        const rowLimit = limit || 5000
+        const sql = `SELECT * FROM ${this.quoteSqlIdentifier(table.tableName)}${whereSql} ORDER BY "create_time" ${order} LIMIT ${rowLimit}`
         const rows = this.callJson<Record<string, unknown>[]>((handle, outJson) =>
           this.wcdbExecQuery!(handle, 'message', table.dbPath, sql, outJson)
         )
@@ -735,7 +747,7 @@ export class Wcdb4Client {
       }
     }
 
-    return this.finalizeMessages(username, allRows, startTime, endTime)
+    return this.finalizeMessages(username, allRows, startTime, endTime, limit)
   }
 
   getMyAvatarUrl(): string | undefined {
@@ -773,7 +785,8 @@ export class Wcdb4Client {
   private getMessagesByCursor(
     username: string,
     startTime?: number,
-    endTime?: number
+    endTime?: number,
+    limit?: number
   ): Wcdb4Message[] | null {
     if (
       !this.wcdbOpenMessageCursor ||
@@ -784,7 +797,7 @@ export class Wcdb4Client {
     }
 
     const handle = this.ensureHandle()
-    const batchSize = 1000
+    const batchSize = limit ? Math.min(500, limit) : 1000
     const cursorOut: WcdbHandleOut = [0]
     const begin = this.normalizeTimestamp(startTime || 0)
     const end = this.normalizeTimestamp(endTime || 0)
@@ -820,6 +833,7 @@ export class Wcdb4Client {
         }
 
         if (!outHasMore[0]) break
+        if (limit && allRows.length >= limit) break
       }
     } finally {
       try {
@@ -829,18 +843,19 @@ export class Wcdb4Client {
       }
     }
 
-    return this.finalizeMessages(username, allRows, startTime, endTime)
+    return this.finalizeMessages(username, allRows, startTime, endTime, limit)
   }
 
   private finalizeMessages(
     username: string,
     rows: Record<string, unknown>[],
     startTime?: number,
-    endTime?: number
+    endTime?: number,
+    limit?: number
   ): Wcdb4Message[] {
     const messages = rows.map((row) => this.normalizeMessage(row))
 
-    return messages
+    const sorted = messages
       .filter((message) => {
         const createTime = Number(message.msgCreateTime)
         if (startTime && createTime < startTime) return false
@@ -848,6 +863,10 @@ export class Wcdb4Client {
         return true
       })
       .sort((a, b) => Number(a.msgCreateTime) - Number(b.msgCreateTime))
+
+    const visibleMessages = limit && sorted.length > limit ? sorted.slice(-limit) : sorted
+
+    return visibleMessages
       .map((message) => {
         if (!message.sender) return message
         const senderNickname = this.displayNameCache.get(message.sender) || message.senderNickname
@@ -867,6 +886,12 @@ export class Wcdb4Client {
             : message.msgContent
         }
       })
+  }
+
+  private normalizeMessageLimit(limit?: number): number | undefined {
+    const normalized = Number(limit)
+    if (!Number.isFinite(normalized) || normalized <= 0) return undefined
+    return Math.max(1, Math.min(5000, Math.floor(normalized)))
   }
 
   getGroupMembers(chatroomId: string): Wcdb4GroupMember[] {

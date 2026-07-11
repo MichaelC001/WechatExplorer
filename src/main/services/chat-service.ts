@@ -155,17 +155,19 @@ export function getContactAvatars(usernames: string[]): Record<string, string> {
 export function listMessages(
   userMd5: string,
   startTime?: number,
-  endTime?: number
+  endTime?: number,
+  options?: { limit?: number }
 ): FormattedMessage[] {
   if (!dbRef) return []
 
   const startedAt = Date.now()
   const wcdb4Client = dbRef.getWcdb4Client()
   const username = wcdb4Client.getUsernameByMd5(userMd5)
+  const isGroupChat = Boolean(username?.endsWith('@chatroom'))
   console.log(
-    `[ChatService] listMessages begin md5=${userMd5} username=${username || ''} start=${startTime || 0} end=${endTime || 0}`
+    `[ChatService] listMessages begin md5=${userMd5} username=${username || ''} start=${startTime || 0} end=${endTime || 0} limit=${options?.limit || 0}`
   )
-  const rawMessages = dbRef.getUserMessages(userMd5, startTime, endTime)
+  const rawMessages = dbRef.getUserMessages(userMd5, startTime, endTime, options)
   console.log(
     `[ChatService] listMessages native done md5=${userMd5} raw=${rawMessages.length} cost=${Date.now() - startedAt}ms`
   )
@@ -188,14 +190,14 @@ export function listMessages(
       if (typeof msg.senderAvatar === 'string') img = msg.senderAvatar
       if (typeof msg.senderNickname === 'string') name = msg.senderNickname
     }
-    if (content && typeof content === 'string') {
+    if (isGroupChat && content && typeof content === 'string') {
       const colonIndex = content.indexOf(':')
       if (colonIndex > 0) {
-        const potentialWxid = content.substring(0, colonIndex)
-        if (potentialWxid.startsWith('wxid_')) {
-          senderId = senderId || potentialWxid
-          name = name || potentialWxid
-          content = content.substring(colonIndex + 1)
+        const potentialSenderId = content.substring(0, colonIndex).trim()
+        if (/^[a-zA-Z0-9_@.-]{3,64}$/.test(potentialSenderId)) {
+          senderId = senderId || potentialSenderId
+          name = name || potentialSenderId
+          content = content.substring(colonIndex + 1).replace(/^\s+/, '')
         }
       }
     }

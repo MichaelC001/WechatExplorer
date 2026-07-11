@@ -13,6 +13,7 @@ import {
 interface ChatWindowProps {
   contact: Contact | null
   messages: Message[]
+  isLoadingMessages?: boolean
   contentFilter?: string
   onRefresh?: () => void
   onRefreshData?: () => void
@@ -76,6 +77,7 @@ const getSummaryDateRange = (range: SummaryDateRange): { startTime: number; endT
 const ChatWindow: React.FC<ChatWindowProps> = ({
   contact,
   messages,
+  isLoadingMessages,
   contentFilter,
   onRefresh,
   onRefreshData
@@ -90,6 +92,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const [imageScale, setImageScale] = useState(0.75)
   const [imageRotation, setImageRotation] = useState(0)
   const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 })
+  const imageViewerStageRef = useRef<HTMLDivElement>(null)
   const imageDragRef = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(
     null
   )
@@ -133,7 +136,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   const openImagePreview = (imageUrl: string): void => {
     setPreviewImage(imageUrl)
-    setImageScale(0.75)
+    setImageScale(1)
     setImageRotation(0)
     setImageOffset({ x: 0, y: 0 })
   }
@@ -144,17 +147,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   }
 
   const zoomImage = (delta: number): void => {
-    setImageScale((prev) => Math.min(3, Math.max(0.25, Number((prev + delta).toFixed(2)))))
+    setImageScale((prev) => Math.min(8, Math.max(0.1, Number((prev + delta).toFixed(2)))))
   }
 
   const resetImageTransform = (): void => {
-    setImageScale(0.75)
+    setImageScale(1)
     setImageRotation(0)
     setImageOffset({ x: 0, y: 0 })
   }
 
   const handleViewerWheel = (event: React.WheelEvent): void => {
     event.preventDefault()
+    event.stopPropagation()
     zoomImage(event.deltaY > 0 ? -0.1 : 0.1)
   }
 
@@ -180,6 +184,24 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const handleViewerMouseUp = (): void => {
     imageDragRef.current = null
   }
+
+  useEffect(() => {
+    if (!previewImage) return
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    const stage = imageViewerStageRef.current
+    const preventBackgroundWheel = (event: WheelEvent): void => {
+      event.preventDefault()
+    }
+    stage?.addEventListener('wheel', preventBackgroundWheel, { passive: false })
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      stage?.removeEventListener('wheel', preventBackgroundWheel)
+    }
+  }, [previewImage])
 
   const handleExport = (days: number | 'all'): void => {
     if (!messages.length) return
@@ -354,6 +376,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       </div>
 
       <div className="message-list wechat-message-list">
+        {isLoadingMessages && (
+          <div className="message-loading-pill">正在加载聊天记录...</div>
+        )}
         {hiddenMessageCount > 0 && (
           <div className="wechat-system-message-row">
             <div className="wechat-system-message">
@@ -562,6 +587,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
               </button>
             </div>
             <div
+              ref={imageViewerStageRef}
               className="image-viewer-stage"
               onWheel={handleViewerWheel}
               onMouseDown={handleViewerMouseDown}

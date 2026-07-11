@@ -1,0 +1,214 @@
+import { app } from 'electron'
+import crypto from 'crypto'
+import fs from 'fs-extra'
+import path from 'path'
+import type { Contact, Message } from '../../shared/types'
+
+export interface CachedSelfInfo {
+  wxid: string
+  nickname: string
+  avatar?: string
+  accountRoot: string
+}
+
+interface CachedMessageBucket {
+  updatedAt: number
+  startTime?: number
+  endTime?: number
+  items: Message[]
+}
+
+interface BootstrapCacheFile {
+  version: 1
+  platform: NodeJS.Platform
+  accountRoot: string
+  updatedAt: number
+  self?: CachedSelfInfo
+  contacts?: Contact[]
+  messages?: Record<string, CachedMessageBucket>
+}
+
+const CACHE_VERSION = 1
+const MAX_MESSAGE_BUCKETS = 24
+const MAX_MESSAGES_PER_BUCKET = 1200
+
+function normalizeRoot(accountRoot?: string): string {
+  return String(accountRoot || '').trim()
+}
+
+function getCacheFile(accountRoot?: string): string {
+  const normalizedRoot = normalizeRoot(accountRoot) || 'default'
+  const hash = crypto
+    .createHash('sha1')
+    .update(`${process.platform}:${normalizedRoot}`)
+    .digest('hex')
+    .slice(0, 16)
+  return path.join(app.getPath('userData'), 'cache', 'bootstrap', `${process.platform}-${hash}.json`)
+}
+
+function readCacheFile(accountRoot?: string): BootstrapCacheFile | null {
+  const normalizedRoot = normalizeRoot(accountRoot)
+  if (!normalizedRoot) return null
+  const file = getCacheFile(normalizedRoot)
+  try {
+    if (!fs.existsSync(file)) return null
+    const raw = fs.readJsonSync(file) as Partial<BootstrapCacheFile>
+    if (raw.version !== CACHE_VERSION || raw.platform !== process.platform) return null
+    if (normalizeRoot(raw.accountRoot) !== normalizedRoot) return null
+    return {
+      version: CACHE_VERSION,
+      platform: process.platform,
+      accountRoot: normalizedRoot,
+      updatedAt: Number(raw.updatedAt) || 0,
+      self: raw.self,
+      contacts: Array.isArray(raw.contacts) ? raw.contacts : [],
+      messages: raw.messages && typeof raw.messages === 'object' ? raw.messages : {}
+    }
+  } catch (error) {
+    console.warn('[BootstrapCache] read failed:', error)
+    return null
+  }
+}
+
+function writeCacheFile(cache: BootstrapCacheFile): void {
+  try {
+    const file = getCacheFile(cache.accountRoot)
+    fs.ensureDirSync(path.dirname(file))
+    fs.writeJsonSync(file, cache, { spaces: 2 })
+  } catch (error) {
+    console.warn('[BootstrapCache] write failed:', error)
+  }
+}
+
+function loadOrCreate(accountRoot?: string): BootstrapCacheFile | null {
+  const normalizedRoot = normalizeRoot(accountRoot)
+  if (!normalizedRoot) return null
+  return (
+    readCacheFile(normalizedRoot) || {
+      version: CACHE_VERSION,
+      platform: process.platform,
+      accountRoot: normalizedRoot,
+      updatedAt: Date.now(),
+      contacts: [],
+      messages: {}
+    }
+  )
+}
+
+function messageBucketKey(userMd5: string, startTime?: number, endTime?: number): string {
+  return `${userMd5}:${startTime ?? ''}:${endTime ?? ''}`
+}
+
+function pruneMessageBuckets(messages: Record<string, CachedMessageBucket>): void {
+  const entries = Object.entries(messages)
+  if (entries.length <= MAX_MESSAGE_BUCKETS) return
+  entries
+    .sort((left, right) => (right[1].updatedAt || 0) - (left[1].updatedAt || 0))
+    .slice(MAX_MESSAGE_BUCKETS)
+    .forEach(([key]) => {
+      delete messages[key]
+    })
+}
+
+export function getBootstrapCache(accountRoot?: string): {
+  self?: CachedSelfInfo
+  contacts: Contact[]
+  updatedAt: number
+} | null {
+  const cache = readCacheFile(accountRoot)
+  if (!cache) return null
+  return {
+    self: cache.self,
+    contacts: cache.contacts || [],
+    updatedAt: cache.updatedAt
+  }
+}
+
+export function mergeCachedContactAvatars(accountRoot: string, contacts: Contact[]): Contact[] {
+  const cache = readCacheFile(accountRoot)
+  if (!cache?.contacts?.length) return contacts
+  const avatarByUsername = new Map(
+    cache.contacts
+      .filter((contact) => contact.m_nsUsrName && contact.avatar)
+      .map((contact) => [contact.m_nsUsrName, contact.avatar as string])
+  )
+  if (avatarByUsername.size === 0) return contacts
+  return contacts.map((contact) =>
+    contact.avatar || !avatarByUsername.has(contact.m_nsUsrName)
+      ? contact
+      : { ...contact, avatar: avatarByUsername.get(contact.m_nsUsrName) }
+  )
+}
+
+export function saveBootstrapSelf(accountRoot: string, self: CachedSelfInfo): void {
+  const cache = loadOrCreate(accountRoot)
+  if (!cache) return
+  cache.self = self
+  cache.updatedAt = Date.now()
+  writeCacheFile(cache)
+}
+
+export function saveBootstrapContacts(accountRoot: string, contacts: Contact[]): void {
+  const cache = loadOrCreate(accountRoot)
+  if (!cache) return
+  const avatarByUsername = new Map(
+    (cache.contacts || [])
+      .filter((contact) => contact.m_nsUsrName && contact.avatar)
+      .map((contact) => [contact.m_nsUsrName, contact.avatar as string])
+  )
+  cache.contacts = contacts.map((contact) =>
+    contact.avatar || !avatarByUsername.has(contact.m_nsUsrName)
+      ? contact
+      : { ...contact, avatar: avatarByUsername.get(contact.m_nsUsrName) }
+  )
+  cache.updatedAt = Date.now()
+  writeCacheFile(cache)
+}
+
+export function mergeBootstrapAvatars(accountRoot: string, avatars: Record<string, string>): void {
+  const cache = loadOrCreate(accountRoot)
+  if (!cache || !cache.contacts?.length) return
+  let changed = false
+  cache.contacts = cache.contacts.map((contact) => {
+    const avatar = avatars[contact.m_nsUsrName]
+    if (!avatar || contact.avatar === avatar) return contact
+    changed = true
+    return { ...contact, avatar }
+  })
+  if (!changed) return
+  cache.updatedAt = Date.now()
+  writeCacheFile(cache)
+}
+
+export function getCachedMessages(
+  accountRoot: string,
+  userMd5: string,
+  startTime?: number,
+  endTime?: number
+): Message[] {
+  const cache = readCacheFile(accountRoot)
+  const bucket = cache?.messages?.[messageBucketKey(userMd5, startTime, endTime)]
+  return bucket?.items || []
+}
+
+export function saveCachedMessages(
+  accountRoot: string,
+  userMd5: string,
+  startTime: number | undefined,
+  endTime: number | undefined,
+  messages: Message[]
+): void {
+  const cache = loadOrCreate(accountRoot)
+  if (!cache) return
+  const nextMessages = cache.messages || {}
+  nextMessages[messageBucketKey(userMd5, startTime, endTime)] = {
+    updatedAt: Date.now(),
+    startTime,
+    endTime,
+    items: messages.slice(-MAX_MESSAGES_PER_BUCKET)
+  }
+  pruneMessageBuckets(nextMessages)
+  cache.messages = nextMessages
+  cache.updatedAt = Date.now()
+  writeCacheFile(cache)
+}

@@ -37,9 +37,24 @@ declare global {
       initDb: (
         key: string
       ) => Promise<boolean | { success: boolean; error?: string; monitoring?: boolean }>
+      getBootstrapCache: () => Promise<{
+        self?: { wxid: string; nickname: string; avatar?: string; accountRoot: string }
+        contacts: Contact[]
+        updatedAt: number
+      } | null>
       getContacts: (filter?: string) => Promise<Contact[]>
       getContactAvatars: (usernames: string[]) => Promise<Record<string, string>>
-      getMessages: (userMd5: string, startTime?: number, endTime?: number) => Promise<Message[]>
+      getCachedMessages: (
+        userMd5: string,
+        startTime?: number,
+        endTime?: number
+      ) => Promise<Message[]>
+      getMessages: (
+        userMd5: string,
+        startTime?: number,
+        endTime?: number,
+        options?: { limit?: number }
+      ) => Promise<Message[]>
       getGroupSnapshot: (userMd5: string) => Promise<{
         roomId: string
         memberCount: number

@@ -63,7 +63,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     >
       <div className="contact-avatar">
         {contact.avatar ? (
-          <img src={contact.avatar} alt={contact.m_nsNickName} referrerPolicy="no-referrer" />
+          <img
+            src={contact.avatar}
+            alt={contact.m_nsNickName}
+            referrerPolicy="no-referrer"
+            loading="lazy"
+            decoding="async"
+          />
         ) : (
           (contact.m_nsNickName || contact.m_nsUsrName || '?').charAt(0)
         )}
@@ -131,7 +137,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="sidebar-footer" onClick={onOpenSettings} title="设置">
         <div className="sidebar-self-avatar">
           {selfInfo?.avatar ? (
-            <img src={selfInfo.avatar} alt={selfInfo.nickname} referrerPolicy="no-referrer" />
+            <img
+              src={selfInfo.avatar}
+              alt={selfInfo.nickname}
+              referrerPolicy="no-referrer"
+              loading="lazy"
+              decoding="async"
+            />
           ) : (
             ((selfInfo?.nickname || selfInfo?.wxid || '我').charAt(0))
           )}

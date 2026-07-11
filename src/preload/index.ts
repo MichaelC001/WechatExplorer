@@ -5,10 +5,17 @@ import { GroupReportExportRequest } from '../shared/group-report'
 // 渲染器的自定义 API
 const api = {
   initDb: (key: string) => ipcRenderer.invoke('db:init', key),
+  getBootstrapCache: () => ipcRenderer.invoke('db:getBootstrapCache'),
   getContacts: (filter?: string) => ipcRenderer.invoke('db:getContacts', filter),
   getContactAvatars: (usernames: string[]) => ipcRenderer.invoke('db:getContactAvatars', usernames),
-  getMessages: (userMd5: string, startTime?: number, endTime?: number) =>
-    ipcRenderer.invoke('db:getMessages', userMd5, startTime, endTime),
+  getCachedMessages: (userMd5: string, startTime?: number, endTime?: number) =>
+    ipcRenderer.invoke('db:getCachedMessages', userMd5, startTime, endTime),
+  getMessages: (
+    userMd5: string,
+    startTime?: number,
+    endTime?: number,
+    options?: { limit?: number }
+  ) => ipcRenderer.invoke('db:getMessages', userMd5, startTime, endTime, options),
   getGroupSnapshot: (userMd5: string) => ipcRenderer.invoke('db:getGroupSnapshot', userMd5),
   search: (keyword: string) => ipcRenderer.invoke('db:search', keyword),
   aiChat: (

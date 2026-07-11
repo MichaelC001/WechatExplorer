@@ -1,4 +1,4 @@
-import { Wcdb4Client } from './wcdb4-client'
+import { Wcdb4Client, Wcdb4MessageQueryOptions } from './wcdb4-client'
 
 export interface UserContact {
   m_nsUsrName: string
@@ -146,10 +146,15 @@ export class WechatDb {
     this.wcdb4Client.close()
   }
 
-  public getUserMessages(userMd5: string, startTime?: number, endTime?: number): WechatMessage[] {
+  public getUserMessages(
+    userMd5: string,
+    startTime?: number,
+    endTime?: number,
+    options?: Wcdb4MessageQueryOptions
+  ): WechatMessage[] {
     const username = this.chatMd5ToUsername.get(userMd5)
     if (!username) return []
-    return this.wcdb4Client.getMessages(username, startTime, endTime).map((message) => ({
+    return this.wcdb4Client.getMessages(username, startTime, endTime, options).map((message) => ({
       ...message,
       ...message.raw
     }))

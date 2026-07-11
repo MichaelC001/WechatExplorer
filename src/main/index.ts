@@ -24,6 +24,15 @@ import {
   getSettingsPath,
   AppSettings
 } from './services/settings-store'
+import {
+  getBootstrapCache,
+  getCachedMessages,
+  mergeBootstrapAvatars,
+  mergeCachedContactAvatars,
+  saveBootstrapContacts,
+  saveBootstrapSelf,
+  saveCachedMessages
+} from './services/bootstrap-cache'
 import { installSafeConsole } from './safe-log'
 
 // electron-vite can close the child's stdout/stderr after spawning Electron.
@@ -228,14 +237,43 @@ app.whenReady().then(async () => {
     }
   })
 
-  ipcMain.handle('db:getContacts', (_, filter?: string) => chat.listContacts(filter))
+  ipcMain.handle('db:getBootstrapCache', () => {
+    if (!chat.isReady()) return null
+    return getBootstrapCache(chat.getCurrentAccountRoot())
+  })
 
-  ipcMain.handle('db:getContactAvatars', (_, usernames: string[]) =>
-    chat.getContactAvatars(usernames)
+  ipcMain.handle(
+    'db:getCachedMessages',
+    (_, userMd5: string, startTime?: number, endTime?: number) => {
+      if (!chat.isReady()) return []
+      return getCachedMessages(chat.getCurrentAccountRoot(), userMd5, startTime, endTime)
+    }
   )
 
-  ipcMain.handle('db:getMessages', (_, userMd5: string, startTime?: number, endTime?: number) =>
-    chat.listMessages(userMd5, startTime, endTime)
+  ipcMain.handle('db:getContacts', (_, filter?: string) => {
+    const accountRoot = chat.getCurrentAccountRoot()
+    const contacts = accountRoot ? mergeCachedContactAvatars(accountRoot, chat.listContacts(filter)) : chat.listContacts(filter)
+    if (!filter && chat.isReady() && accountRoot) {
+      saveBootstrapContacts(accountRoot, contacts)
+    }
+    return contacts
+  })
+
+  ipcMain.handle('db:getContactAvatars', (_, usernames: string[]) => {
+    const avatars = chat.getContactAvatars(usernames)
+    if (chat.isReady()) mergeBootstrapAvatars(chat.getCurrentAccountRoot(), avatars)
+    return avatars
+  })
+
+  ipcMain.handle(
+    'db:getMessages',
+    (_, userMd5: string, startTime?: number, endTime?: number, options?: { limit?: number }) => {
+      const messages = chat.listMessages(userMd5, startTime, endTime, options)
+      if (chat.isReady()) {
+        saveCachedMessages(chat.getCurrentAccountRoot(), userMd5, startTime, endTime, messages)
+      }
+      return messages
+    }
   )
 
   ipcMain.handle('db:getGroupSnapshot', (_, userMd5: string) => chat.getGroupSnapshot(userMd5))
@@ -374,6 +412,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('settings:getSelf', () => {
     const info = chat.getSelfAccountInfo()
     if (!info) return { ready: false }
+    if (chat.isReady()) saveBootstrapSelf(chat.getCurrentAccountRoot(), info)
     return { ready: true, info }
   })
 
