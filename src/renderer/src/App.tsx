@@ -2,6 +2,8 @@
 import { Sidebar } from './components/Sidebar'
 import ChatWindow from './components/ChatWindow'
 import { SettingsPanel } from './components/SettingsPanel'
+import { AppShell } from './components/layout/AppShell'
+import { AppPage } from './components/layout/navigation'
 import { Contact, Message } from '../../shared/types'
 
 function EyeIcon({ hidden }: { hidden: boolean }): React.ReactElement {
@@ -149,6 +151,7 @@ function App(): React.ReactElement {
   const [showDbKey, setShowDbKey] = useState(false)
   const [showMacKeyFaq, setShowMacKeyFaq] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [activePage, setActivePage] = useState<AppPage>('archive')
   const [selfInfo, setSelfInfo] = useState<SelfInfo | null>(null)
   const [isNativeMonitorActive, setIsNativeMonitorActive] = useState(false)
   const [bootState, setBootState] = useState<'loading' | 'connecting' | 'login'>('loading')
@@ -830,30 +833,41 @@ function App(): React.ReactElement {
   }
 
   return (
-    <div className="app-container">
-      <Sidebar
-        contacts={filteredContacts}
-        selectedContact={selectedContact}
-        onSelectContact={handleSelectContact}
-        onSearch={handleSearchContacts}
-        onContentFilter={setContentFilter}
-        width={sidebarWidth}
-        dateRange={dateRange}
-        onDateRangeChange={handleDateRangeChange}
-        selfInfo={selfInfo}
-        dbReady={isAuthenticated}
-        onOpenSettings={() => setShowSettings(true)}
-      />
-      <div className="resizer" onMouseDown={startResizing} />
-      <ChatWindow
-        key={`${selectedContact?.md5}-${contentFilter}`}
-        contact={selectedContact}
-        messages={messages}
-        isLoadingMessages={isMessagesLoading}
-        contentFilter={contentFilter}
-        onRefresh={() => selectedContact && handleSelectContact(selectedContact)}
-        onRefreshData={loadContacts}
-      />
+    <AppShell
+      activePage={activePage}
+      selfInfo={selfInfo}
+      dbReady={isAuthenticated}
+      onPageChange={setActivePage}
+      onOpenSettings={() => {
+        setActivePage('settings')
+        setShowSettings(true)
+      }}
+    >
+      <div className="app-container">
+        <Sidebar
+          contacts={filteredContacts}
+          selectedContact={selectedContact}
+          onSelectContact={handleSelectContact}
+          onSearch={handleSearchContacts}
+          onContentFilter={setContentFilter}
+          width={sidebarWidth}
+          dateRange={dateRange}
+          onDateRangeChange={handleDateRangeChange}
+          selfInfo={selfInfo}
+          dbReady={isAuthenticated}
+          onOpenSettings={() => setShowSettings(true)}
+        />
+        <div className="resizer" onMouseDown={startResizing} />
+        <ChatWindow
+          key={`${selectedContact?.md5}-${contentFilter}`}
+          contact={selectedContact}
+          messages={messages}
+          isLoadingMessages={isMessagesLoading}
+          contentFilter={contentFilter}
+          onRefresh={() => selectedContact && handleSelectContact(selectedContact)}
+          onRefreshData={loadContacts}
+        />
+      </div>
       <SettingsPanel
         open={showSettings}
         selfInfo={selfInfo}
@@ -866,7 +880,7 @@ function App(): React.ReactElement {
           void loadContacts()
         }}
       />
-    </div>
+    </AppShell>
   )
 }
 

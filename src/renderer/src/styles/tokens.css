@@ -1,0 +1,26 @@
+:root {
+  --wxex-bg-app: #f4f6f5;
+  --wxex-bg-main: #fafbfa;
+  --wxex-bg-sidebar: #eef2f0;
+  --wxex-bg-elevated: #ffffff;
+  --wxex-text-primary: #202724;
+  --wxex-text-secondary: #66706b;
+  --wxex-text-muted: #929a96;
+  --wxex-border: #dde3e0;
+  --wxex-brand: #247a63;
+  --wxex-brand-hover: #1d6754;
+  --wxex-brand-soft: #ddede7;
+  --wxex-ai: #686edc;
+  --wxex-ai-soft: #eeeffd;
+  --wxex-success: #2e8b68;
+  --wxex-warning: #c68635;
+  --wxex-danger: #c85a5a;
+  --wxex-font:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --wxex-nav-width: 76px;
+  --wxex-shell-content-top: 12px;
+  --wxex-radius-sm: 4px;
+  --wxex-radius-md: 8px;
+  --wxex-radius-lg: 12px;
+  --wxex-shadow-popover: 0 4px 12px rgba(0, 0, 0, 0.08);
+}

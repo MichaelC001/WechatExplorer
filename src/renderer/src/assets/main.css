@@ -13,9 +13,9 @@
 body {
   margin: 0;
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  background-color: var(--bg-color);
-  color: var(--text-color);
+  font-family: var(--wxex-font);
+  background-color: var(--wxex-bg-app);
+  color: var(--wxex-text-primary);
   height: 100vh;
   overflow: hidden;
 }
@@ -25,10 +25,277 @@ body {
   display: flex;
 }
 
+.app-shell {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--wxex-bg-app);
+}
+
+.app-primary-rail {
+  box-sizing: border-box;
+  width: var(--wxex-nav-width);
+  flex: 0 0 var(--wxex-nav-width);
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-right: 1px solid var(--wxex-border);
+  background: var(--wxex-bg-sidebar);
+  padding: 12px 8px;
+  overflow: hidden;
+  -webkit-app-region: drag;
+}
+
+.app-brand {
+  box-sizing: border-box;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--wxex-radius-md);
+  background: var(--wxex-brand);
+  color: #ffffff;
+  -webkit-app-region: no-drag;
+}
+
+.app-brand svg {
+  width: 34px;
+  height: 34px;
+}
+
+.app-brand path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.app-brand circle {
+  fill: currentColor;
+}
+
+.primary-navigation {
+  box-sizing: border-box;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin-top: 18px;
+  -webkit-app-region: no-drag;
+}
+
+.primary-nav-item {
+  width: 100%;
+  height: 58px;
+  flex: 0 0 58px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 0;
+  border-radius: var(--wxex-radius-md);
+  background: transparent;
+  color: var(--wxex-text-secondary);
+  cursor: pointer;
+  font-family: var(--wxex-font);
+}
+
+.primary-nav-item:hover {
+  background: rgba(255, 255, 255, 0.46);
+  color: var(--wxex-text-primary);
+}
+
+.primary-nav-item.active {
+  background: var(--wxex-brand-soft);
+  color: var(--wxex-brand);
+}
+
+.primary-nav-mark {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+}
+
+.primary-nav-mark svg {
+  width: 22px;
+  height: 22px;
+}
+
+.primary-nav-mark path,
+.primary-nav-mark circle {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.primary-nav-label {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.app-rail-account {
+  box-sizing: border-box;
+  width: 100%;
+  flex: 0 0 auto;
+  -webkit-app-region: no-drag;
+}
+
+.account-summary {
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: var(--wxex-radius-md);
+  background: transparent;
+  color: var(--wxex-text-primary);
+  cursor: pointer;
+  font-family: var(--wxex-font);
+  text-align: left;
+}
+
+.account-summary:hover {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.account-summary.compact {
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.account-summary-avatar {
+  box-sizing: border-box;
+  position: relative;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: var(--wxex-radius-md);
+  background: var(--wxex-bg-elevated);
+  color: var(--wxex-brand);
+  font-size: 14px;
+  font-weight: 700;
+  overflow: hidden;
+}
+
+.account-summary-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.account-summary-status {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--wxex-bg-elevated);
+  border-radius: 999px;
+  background: var(--wxex-text-muted);
+}
+
+.account-summary-status.ready {
+  background: var(--wxex-success);
+}
+
+.account-summary-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.account-summary-name {
+  overflow: hidden;
+  color: var(--wxex-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-summary-meta {
+  overflow: hidden;
+  color: var(--wxex-text-muted);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell-main {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  padding-top: var(--wxex-shell-content-top);
+  background: var(--wxex-bg-main);
+}
+
+.app-page-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--wxex-text-secondary);
+  text-align: center;
+}
+
+.app-page-placeholder-eyebrow {
+  margin-bottom: 8px;
+  color: var(--wxex-brand);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.app-page-placeholder h2 {
+  margin: 0 0 8px;
+  color: var(--wxex-text-primary);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+}
+
+.app-page-placeholder p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
 .app-container {
   display: flex;
   width: 100%;
   height: 100%;
+  min-height: 0;
+  min-width: 0;
+  align-items: stretch;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -37,11 +304,13 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   flex-shrink: 0;
   /* Prevent shrinking */
 }
 
 .sidebar-header {
+  flex: 0 0 auto;
   padding: 10px;
   border-bottom: 1px solid var(--border-color);
   -webkit-app-region: drag;
@@ -208,12 +477,15 @@ body {
   display: flex;
   flex-direction: column;
   background-color: var(--chat-bg);
+  height: 100%;
+  min-height: 0;
   min-width: 0;
   /* Allow flex item to shrink below content size */
 }
 
 .chat-header {
   height: 50px;
+  flex: 0 0 50px;
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
