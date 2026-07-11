@@ -72,24 +72,33 @@ export class ImageDecryptService {
   /**
    * 根据 md5 查找图片文件 (WechatExplorer 风格)
    */
-  findImageFile(md5?: string, imageDatName?: string): string | null {
+  findImageFile(
+    md5?: string,
+    imageDatName?: string,
+    options?: { allowThumbnail?: boolean }
+  ): string | null {
     const accountDir = this.getAccountDir()
     if (!accountDir) return null
+    const allowThumbnail = options?.allowThumbnail !== false
 
     const normalizedMd5 = this.normalizeDatBase(md5 || '')
     const normalizedDatName = this.normalizeDatBase(imageDatName || '')
     console.log('[ImageDecrypt] findImageFile:', {
       md5: normalizedMd5,
       imageDatName: normalizedDatName,
-      accountDir
+      accountDir,
+      allowThumbnail
     })
 
     for (const key of this.uniq([normalizedMd5, normalizedDatName])) {
       const hardlink = this.wcdb4Client?.resolveImageHardlink(key)
       const fullPath = typeof hardlink?.full_path === 'string' ? hardlink.full_path : ''
       if (fullPath && existsSync(fullPath)) {
-        console.log('[ImageDecrypt] hardlink hit:', fullPath)
-        return this.getPreferredDatVariantPath(fullPath, true)
+        const selected = this.getPreferredDatVariantPath(fullPath, allowThumbnail)
+        if (allowThumbnail || !this.isThumbnailName(basename(selected))) {
+          console.log('[ImageDecrypt] hardlink hit:', selected)
+          return selected
+        }
       }
     }
 
@@ -104,18 +113,22 @@ export class ImageDecryptService {
     if (searchKeys.length === 0) return null
 
     for (const key of searchKeys) {
-      const directHit = this.fastProbabilisticSearch(attachDir, key)
+      const directHit = this.fastProbabilisticSearch(attachDir, key, allowThumbnail)
       if (directHit) return directHit
     }
 
-    const legacyHit = this.findImageFileInLegacyDirs(accountDir, searchKeys[0])
+    const legacyHit = this.findImageFileInLegacyDirs(accountDir, searchKeys[0], allowThumbnail)
     if (legacyHit) return legacyHit
 
     console.log('[ImageDecrypt] findImageFile miss for:', searchKeys)
     return null
   }
 
-  private fastProbabilisticSearch(attachDir: string, datName: string): string | null {
+  private fastProbabilisticSearch(
+    attachDir: string,
+    datName: string,
+    allowThumbnail = true
+  ): string | null {
     const normalized = this.normalizeDatBase(datName)
     if (!normalized) return null
 
@@ -131,7 +144,7 @@ export class ImageDecryptService {
           join(attachDir, dir1, dir2, 'Image', variant),
           join(attachDir, dir1, dir2, 'image', variant)
         ]
-        const found = this.getLargestExistingPath(candidates, true)
+        const found = this.getLargestExistingPath(candidates, allowThumbnail)
         if (found) {
           console.log('[ImageDecrypt] prefix path hit:', found)
           return found
@@ -159,7 +172,7 @@ export class ImageDecryptService {
 
             const found = this.getLargestExistingPath(
               variants.map((variant) => join(imgDir, variant)),
-              true
+              allowThumbnail
             )
             if (found) {
               console.log('[ImageDecrypt] found at:', found)
@@ -175,7 +188,11 @@ export class ImageDecryptService {
     return null
   }
 
-  private findImageFileInLegacyDirs(accountDir: string, datName: string): string | null {
+  private findImageFileInLegacyDirs(
+    accountDir: string,
+    datName: string,
+    allowThumbnail = true
+  ): string | null {
     const normalized = this.normalizeDatBase(datName)
     if (!normalized) return null
 
@@ -186,18 +203,27 @@ export class ImageDecryptService {
     ].filter((root) => existsSync(root))
 
     for (const root of roots) {
-      const found = this.recursiveFindDat(root, normalized, 5)
+      const found = this.recursiveFindDat(root, normalized, 5, allowThumbnail)
       if (found) return found
     }
 
     return null
   }
 
-  private recursiveFindDat(dir: string, datName: string, depth: number): string | null {
+  private recursiveFindDat(
+    dir: string,
+    datName: string,
+    depth: number,
+    allowThumbnail = true
+  ): string | null {
     if (depth < 0) return null
 
     try {
-      const variants = new Set(this.buildPreferredDatNames(datName))
+      const variants = new Set(
+        this.buildPreferredDatNames(datName).filter(
+          (name) => allowThumbnail || !this.isThumbnailName(name)
+        )
+      )
       const entries = readdirSync(dir)
       for (const entry of entries) {
         const fullPath = join(dir, entry)
@@ -211,7 +237,7 @@ export class ImageDecryptService {
       for (const entry of entries) {
         const fullPath = join(dir, entry)
         if (!statSync(fullPath).isDirectory()) continue
-        const found = this.recursiveFindDat(fullPath, datName, depth - 1)
+        const found = this.recursiveFindDat(fullPath, datName, depth - 1, allowThumbnail)
         if (found) return found
       }
     } catch {
@@ -422,6 +448,8 @@ export class ImageDecryptService {
       `${base}.dat`,
       `${base}_hd.dat`,
       `${base}_h.dat`,
+      `${base}_b.dat`,
+      `${base}_w.dat`,
       `${base}_c.dat`,
       `${base}_t.dat`,
       `${base}.thumb.dat`,
@@ -468,6 +496,10 @@ export class ImageDecryptService {
   private isThumbnailName(fileName: string): boolean {
     const lower = fileName.toLowerCase()
     return lower.includes('_t.dat') || lower.includes('_thumb.dat') || lower.includes('.thumb.dat')
+  }
+
+  isThumbnailFile(filePath: string): boolean {
+    return this.isThumbnailName(basename(filePath))
   }
 
   private unwrapWxgf(buffer: Buffer): Buffer {

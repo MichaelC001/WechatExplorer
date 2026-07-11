@@ -76,8 +76,9 @@ declare global {
       getImage: (
         imageMd5?: string,
         imageDatNameOrThumb?: string | boolean,
-        sessionId?: string
-      ) => Promise<{ success: boolean; data?: string; error?: string }>
+        sessionId?: string,
+        options?: { force?: boolean }
+      ) => Promise<{ success: boolean; data?: string; error?: string; isThumb?: boolean; filePath?: string }>
       getSticker: (
         cdnUrl?: string,
         md5?: string

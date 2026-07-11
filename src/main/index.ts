@@ -1,4 +1,4 @@
-import './preload-env'
+﻿import './preload-env'
 import { app, shell, BrowserWindow, ipcMain, nativeImage, clipboard, Menu, Tray } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -76,7 +76,7 @@ function getConfiguredImageKeys(): { xorKey: string; aesKey: string } {
 
 
 function createWindow(): void {
-  // 创建浏览器窗口
+  // 鍒涘缓娴忚鍣ㄧ獥鍙?
   const mainWindow = new BrowserWindow({
     width: 1400,
     height: 800,
@@ -98,8 +98,8 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
-  // 基于 electron-vite cli 的渲染器 HMR
-  // 加载开发环境的远程 URL 或生产环境的本地 html 文件
+  // 鍩轰簬 electron-vite cli 鐨勬覆鏌撳櫒 HMR
+  // 鍔犺浇寮€鍙戠幆澧冪殑杩滅▼ URL 鎴栫敓浜х幆澧冪殑鏈湴 html 鏂囦欢
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
@@ -107,8 +107,8 @@ function createWindow(): void {
   }
 }
 
-// 当 Electron 完成初始化并准备好创建浏览器窗口时，将调用此方法
-// 某些 API 只能在此事件发生后使用
+// 褰?Electron 瀹屾垚鍒濆鍖栧苟鍑嗗濂藉垱寤烘祻瑙堝櫒绐楀彛鏃讹紝灏嗚皟鐢ㄦ鏂规硶
+// 鏌愪簺 API 鍙兘鍦ㄦ浜嬩欢鍙戠敓鍚庝娇鐢?
 app.whenReady().then(async () => {
   console.log(`WechatExplorer main build: ${BUILD_MARK}`)
 
@@ -122,12 +122,12 @@ app.whenReady().then(async () => {
     console.error('[WCDB4] bootstrap failed at whenReady top:', bootstrapError)
   }
 
-  // 为窗口设置应用程序用户模型 ID
+  // 涓虹獥鍙ｈ缃簲鐢ㄧ▼搴忕敤鎴锋ā鍨?ID
   electronApp.setAppUserModelId('com.electron')
 
-  // 在开发环境中默认按 F12 打开或关闭 DevTools
-  // 在生产环境中忽略 CommandOrControl + R
-  // 参见 https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
+  // 鍦ㄥ紑鍙戠幆澧冧腑榛樿鎸?F12 鎵撳紑鎴栧叧闂?DevTools
+  // 鍦ㄧ敓浜х幆澧冧腑蹇界暐 CommandOrControl + R
+  // 鍙傝 https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
@@ -297,7 +297,7 @@ app.whenReady().then(async () => {
         return { success: false, error: '未配置 API Key' }
       }
 
-      // 动态导入以避免如果未安装或初始类型缺失的问题
+      // 鍔ㄦ€佸鍏ヤ互閬垮厤濡傛灉鏈畨瑁呮垨鍒濆绫诲瀷缂哄け鐨勯棶棰?
       const { OpenAI } = await import('openai')
 
       const openai = new OpenAI({
@@ -358,20 +358,38 @@ app.whenReady().then(async () => {
 
   ipcMain.handle(
     'db:getImage',
-    async (_, imageMd5?: string, imageDatNameOrThumb?: string | boolean, _sessionId?: string) => {
+    async (
+      _,
+      imageMd5?: string,
+      imageDatNameOrThumb?: string | boolean,
+      _sessionId?: string,
+      options?: { force?: boolean }
+    ) => {
       void _sessionId
       if (!imageDecryptService) {
         const { xorKey, aesKey } = getConfiguredImageKeys()
         if (!aesKey) {
           return { success: false, error: '未配置图片解密密钥' }
         }
-        imageDecryptService = new ImageDecryptService(xorKey, aesKey, chat.getChatDb()?.getWcdb4Client())
+        imageDecryptService = new ImageDecryptService(
+          xorKey,
+          aesKey,
+          chat.getChatDb()?.getWcdb4Client()
+        )
       }
 
       const imageDatName = typeof imageDatNameOrThumb === 'string' ? imageDatNameOrThumb : undefined
-      const filePath = imageDecryptService.findImageFile(imageMd5, imageDatName)
+      const force = options?.force === true
+      let filePath = force
+        ? imageDecryptService.findImageFile(imageMd5, imageDatName, { allowThumbnail: false })
+        : null
       if (!filePath) {
-        return { success: false, error: '未找到图片文件' }
+        filePath = imageDecryptService.findImageFile(imageMd5, imageDatName, {
+          allowThumbnail: true
+        })
+      }
+      if (!filePath) {
+        return { success: false, error: force ? '未找到原图或缩略图文件' : '未找到图片文件' }
       }
 
       const base64 = imageDecryptService.decryptImageToBase64(filePath)
@@ -379,7 +397,12 @@ app.whenReady().then(async () => {
         return { success: false, error: '图片解密失败' }
       }
 
-      return { success: true, data: base64 }
+      return {
+        success: true,
+        data: base64,
+        isThumb: imageDecryptService.isThumbnailFile(filePath),
+        filePath
+      }
     }
   )
 
@@ -451,7 +474,7 @@ app.whenReady().then(async () => {
 
   createWindow()
 
-  // 启动本地 HTTP API(根据 settings.apiEnabled 控制)
+  // 鍚姩鏈湴 HTTP API(鏍规嵁 settings.apiEnabled 鎺у埗)
   const settings = loadSettings()
   if (settings.apiEnabled) {
     await apiServer.start(settings.apiHost, settings.apiPort)
@@ -463,15 +486,15 @@ app.whenReady().then(async () => {
   }
 
   app.on('activate', function () {
-    // 在 macOS 上，当点击 dock 图标且没有其他窗口打开时，
-    // 通常会在应用程序中重新创建一个窗口。
+    // 鍦?macOS 涓婏紝褰撶偣鍑?dock 鍥炬爣涓旀病鏈夊叾浠栫獥鍙ｆ墦寮€鏃讹紝
+    // 閫氬父浼氬湪搴旂敤绋嬪簭涓噸鏂板垱寤轰竴涓獥鍙ｃ€?
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
-// 当所有窗口关闭时退出，除了 macOS。在那里，
-// 应用程序及其菜单栏通常会保持活动状态，直到用户
-// 显式使用 Cmd + Q 退出。
+// 褰撴墍鏈夌獥鍙ｅ叧闂椂閫€鍑猴紝闄や簡 macOS銆傚湪閭ｉ噷锛?
+// 搴旂敤绋嬪簭鍙婂叾鑿滃崟鏍忛€氬父浼氫繚鎸佹椿鍔ㄧ姸鎬侊紝鐩村埌鐢ㄦ埛
+// 鏄惧紡浣跨敤 Cmd + Q 閫€鍑恒€?
 app.on('window-all-closed', () => {
   if (TRAY_MODE) return
   if (process.platform !== 'darwin') {

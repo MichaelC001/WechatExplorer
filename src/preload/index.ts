@@ -27,8 +27,12 @@ const api = {
     ipcRenderer.invoke('db:getVoiceData', sessionId, localId, createTime, svrId),
   parseMessage: (content: string, messageType: number) =>
     ipcRenderer.invoke('db:parseMessage', content, messageType),
-  getImage: (imageMd5?: string, imageDatNameOrThumb?: string | boolean, sessionId?: string) =>
-    ipcRenderer.invoke('db:getImage', imageMd5, imageDatNameOrThumb, sessionId),
+  getImage: (
+    imageMd5?: string,
+    imageDatNameOrThumb?: string | boolean,
+    sessionId?: string,
+    options?: { force?: boolean }
+  ) => ipcRenderer.invoke('db:getImage', imageMd5, imageDatNameOrThumb, sessionId, options),
   getSticker: (cdnUrl?: string, md5?: string) => ipcRenderer.invoke('db:getSticker', cdnUrl, md5),
   exportGroupReport: (request: GroupReportExportRequest) =>
     ipcRenderer.invoke('report:export', request),

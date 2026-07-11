@@ -18,7 +18,9 @@ export function ImageBubble({
 }: ImageBubbleProps): JSX.Element {
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [upgrading, setUpgrading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isThumbnail, setIsThumbnail] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const loadImage = useCallback(async () => {
@@ -31,22 +33,18 @@ export function ImageBubble({
     setLoading(true)
     try {
       const result = await window.api.getImage(imageMd5, imageDatName || isThumb, sessionId)
-      if (result.success && result.data) {
-        // 验证返回的是否是有效的图片 data URL
-        if (result.data.startsWith('data:image/')) {
-          setImageUrl(result.data)
-          setError(null)
-        } else {
-          // 解密后不是有效图片格式，显示未解密
-          setError('未解密')
-        }
+      if (result.success && result.data?.startsWith('data:image/')) {
+        setImageUrl(result.data)
+        setIsThumbnail(Boolean(result.isThumb))
+        setError(null)
       } else {
         setError(result.error || '加载图片失败')
       }
     } catch {
       setError('加载图片失败')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }, [imageMd5, imageDatName, sessionId, isThumb, imageUrl, loading])
 
   useEffect(() => {
@@ -71,16 +69,42 @@ export function ImageBubble({
 
   const handleCopy = async (event: MouseEvent): Promise<void> => {
     event.stopPropagation()
-    if (imageUrl) {
-      await window.api.copyImage(imageUrl)
-      alert('图片已复制')
-    }
+    if (!imageUrl) return
+    await window.api.copyImage(imageUrl)
+    alert('图片已复制')
   }
 
-  const handleClick = (): void => {
-    if (imageUrl) {
-      onImageClick?.(imageUrl)
+  const handleClick = async (): Promise<void> => {
+    if (!imageUrl && !error) return
+    if (!imageMd5 && !imageDatName) {
+      if (imageUrl) onImageClick?.(imageUrl)
+      return
     }
+
+    if (upgrading) {
+      if (imageUrl) onImageClick?.(imageUrl)
+      return
+    }
+
+    setUpgrading(true)
+    try {
+      const result = await window.api.getImage(imageMd5, imageDatName || isThumb, sessionId, {
+        force: true
+      })
+      if (result.success && result.data?.startsWith('data:image/')) {
+        setImageUrl(result.data)
+        setIsThumbnail(Boolean(result.isThumb))
+        setError(null)
+        onImageClick?.(result.data)
+        return
+      }
+    } catch {
+      // Fall back to the already visible image.
+    } finally {
+      setUpgrading(false)
+    }
+
+    if (imageUrl) onImageClick?.(imageUrl)
   }
 
   if (loading) {
@@ -94,7 +118,7 @@ export function ImageBubble({
   if (error) {
     return (
       <div className="image-bubble image-error" onClick={loadImage}>
-        <div className="image-error-text">图片未加载</div>
+        <div className="image-error-text">{error || '图片未加载'}</div>
       </div>
     )
   }
@@ -102,8 +126,8 @@ export function ImageBubble({
   if (!imageUrl) {
     return (
       <div ref={containerRef} className="image-bubble image-placeholder">
-        <div className="image-placeholder-icon">🖼</div>
-        <div className="image-placeholder-text">加载图片中</div>
+        <div className="image-placeholder-icon">图</div>
+        <div className="image-placeholder-text">加载图片中...</div>
       </div>
     )
   }
@@ -111,9 +135,12 @@ export function ImageBubble({
   return (
     <div className="image-bubble image-loaded" onClick={handleClick}>
       <img src={imageUrl} alt="图片" className="image-content" />
+      {(upgrading || isThumbnail) && (
+        <div className="image-quality-badge">{upgrading ? '查找原图...' : '缩略图'}</div>
+      )}
       <div className="image-actions">
         <button className="image-action-btn" onClick={handleCopy} title="复制图片">
-          📋
+          复制
         </button>
       </div>
     </div>
