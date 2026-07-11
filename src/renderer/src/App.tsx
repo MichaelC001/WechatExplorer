@@ -48,6 +48,9 @@ interface SelfInfo {
 const MAC_KEY_FAQ_URL = 'https://github.com/hicccc77/WeFlow/blob/main/docs/MAC-KEY-FAQ.md'
 const MESSAGE_MONITOR_DEBOUNCE_MS = 8000
 const VIEW_MESSAGE_LIMIT = 600
+const AUTO_LOGIN_ENABLED = ['1', 'true', 'yes', 'on'].includes(
+  String(import.meta.env.VITE_AUTO_LOGIN || '').trim().toLowerCase()
+)
 
 const getMessageIdentity = (message: Message): string => {
   if (message.localId) return `local:${message.localId}`
@@ -288,21 +291,18 @@ function App(): React.ReactElement {
         setDbKey(key)
         setAutoConnectSource(envKey ? 'env' : 'saved')
         setDbKeyStatus(
-          envKey ? '已加载环境变量中的密钥，请手动点击 Connect' : '已加载安全保存的密钥，请手动点击 Connect'
+          AUTO_LOGIN_ENABLED
+            ? envKey
+              ? '检测到环境变量中的密钥，正在自动连接...'
+              : '已加载安全保存的密钥，正在自动连接...'
+            : envKey
+              ? '已加载环境变量中的密钥，请手动点击 Connect'
+              : '已加载安全保存的密钥，请手动点击 Connect'
         )
         setDbKeyStatusKind('normal')
-        setBootState('login')
+        setBootState(AUTO_LOGIN_ENABLED ? 'connecting' : 'login')
       }
-      if (true) return
-      if (active) {
-        setBootState('connecting')
-        setDbKey(key)
-        setAutoConnectSource(envKey ? 'env' : 'saved')
-        setDbKeyStatus(
-          envKey ? '检测到环境变量中的密钥，正在自动连接...' : '已加载安全保存的密钥，正在自动连接...'
-        )
-        setDbKeyStatusKind('normal')
-      }
+      if (!AUTO_LOGIN_ENABLED) return
       try {
         const result: any = await window.api.initDb(key)
         if (!active) return
@@ -341,12 +341,6 @@ function App(): React.ReactElement {
       unsubscribe()
     }
   }, [])
-
-  // useEffect(() => {
-  //   if (import.meta.env.VITE_DB_KEY) {
-  //     handleLogin(import.meta.env.VITE_DB_KEY);
-  //   }
-  // }, []);
 
   const handleLogin = async (keyInput?: string): Promise<void> => {
     const keyToUse = keyInput || dbKey
