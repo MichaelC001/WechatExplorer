@@ -24,23 +24,44 @@ interface ApiState {
   error?: string
 }
 
+interface AiModelConfig {
+  apiKey: string
+  baseURL: string
+  model: string
+}
+
 interface SettingsPanelProps {
   open: boolean
   selfInfo: SelfInfo | null
   dbReady: boolean
   dbKey: string
+  aiModelConfig: AiModelConfig
   onClose: () => void
   onDbKeyChange: (key: string) => void
+  onAiModelConfigChange: (config: AiModelConfig) => void
+  onSaveAiModelConfig: () => void
   onDbRootChanged: () => void
 }
+
+const AI_MODEL_OPTIONS = [
+  { value: 'deepseek-chat', label: 'DeepSeek Chat' },
+  { value: 'gpt-4o', label: 'GPT-4o' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+  { value: 'claude-3-5-sonnet-20240620', label: 'Claude 3.5 Sonnet' },
+  { value: 'moonshot-v1-8k', label: 'Moonshot V1' }
+]
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   open,
   selfInfo,
   dbReady,
   dbKey,
+  aiModelConfig,
   onClose,
   onDbKeyChange,
+  onAiModelConfigChange,
+  onSaveAiModelConfig,
   onDbRootChanged
 }) => {
   const isWindows = window.electron.process.platform === 'win32'
@@ -341,6 +362,56 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </div>
             <div className="settings-hint">
               可填写微信数据总目录或具体账号目录。Windows 通常是 Documents\WeChat Files，macOS 通常是 xwechat_files；程序会自动选择包含 db_storage/session.db 的账号目录。
+            </div>
+          </section>
+
+          <section className="settings-section">
+            <div className="settings-section-title">AI 模型配置</div>
+            <div className="settings-row">
+              <select
+                className="settings-input settings-input-half"
+                value={aiModelConfig.model}
+                onChange={(event) =>
+                  onAiModelConfigChange({ ...aiModelConfig, model: event.target.value })
+                }
+              >
+                {AI_MODEL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <button className="settings-btn" onClick={onSaveAiModelConfig}>
+                保存 AI 配置
+              </button>
+            </div>
+            <div className="settings-row">
+              <input
+                type="text"
+                className="settings-input"
+                value={aiModelConfig.baseURL}
+                onChange={(event) =>
+                  onAiModelConfigChange({ ...aiModelConfig, baseURL: event.target.value })
+                }
+                placeholder="https://api.deepseek.com"
+                spellCheck={false}
+              />
+            </div>
+            <div className="settings-row">
+              <input
+                type="password"
+                className="settings-input"
+                value={aiModelConfig.apiKey}
+                onChange={(event) =>
+                  onAiModelConfigChange({ ...aiModelConfig, apiKey: event.target.value })
+                }
+                placeholder="API Key"
+                spellCheck={false}
+              />
+            </div>
+            <div className="settings-hint">
+              所选内容会发送至你配置的模型服务进行处理。配置沿用原有本地
+              localStorage 保存方式。
             </div>
           </section>
 

@@ -4,6 +4,14 @@ import ChatWindow from './components/ChatWindow'
 import { SettingsPanel } from './components/SettingsPanel'
 import { AppShell } from './components/layout/AppShell'
 import { AppPage } from './components/layout/navigation'
+import { AiReportWorkspace } from './components/reports/AiReportWorkspace'
+import { ReportSourceSidebar } from './components/reports/ReportSourceSidebar'
+import { ReportTaskStatusPanel } from './components/reports/ReportTaskStatusPanel'
+import {
+  AiModelConfig,
+  useGroupReportGeneration
+} from './hooks/useGroupReportGeneration'
+import { SummaryDateRange, SummaryMessageType } from './utils/group-report'
 import { Contact, Message } from '../../shared/types'
 
 const SIDEBAR_MIN_WIDTH = 260
@@ -158,6 +166,15 @@ function App(): React.ReactElement {
   const [showMacKeyFaq, setShowMacKeyFaq] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>('archive')
+  const [reportSourceContact, setReportSourceContact] = useState<Contact | null>(null)
+  const [reportNotice, setReportNotice] = useState('')
+  const [summaryDateRange, setSummaryDateRange] = useState<SummaryDateRange>('today')
+  const [summaryMessageTypes, setSummaryMessageTypes] = useState<SummaryMessageType[]>(['text'])
+  const [aiModelConfig, setAiModelConfig] = useState<AiModelConfig>(() => ({
+    apiKey: localStorage.getItem('ai_api_key') || '',
+    baseURL: localStorage.getItem('ai_base_url') || 'https://api.deepseek.com',
+    model: localStorage.getItem('ai_model') || 'deepseek-chat'
+  }))
   const [selfInfo, setSelfInfo] = useState<SelfInfo | null>(null)
   const [isNativeMonitorActive, setIsNativeMonitorActive] = useState(false)
   const [bootState, setBootState] = useState<'loading' | 'connecting' | 'login'>('loading')
@@ -168,6 +185,13 @@ function App(): React.ReactElement {
   const groupMemberMetaRef = React.useRef<Record<string, Map<string, GroupMemberMeta>>>({})
   const selectedContactMd5Ref = React.useRef<string>('')
   const contactAvatarHydrationRunRef = React.useRef(0)
+
+  const reportGeneration = useGroupReportGeneration({
+    sourceContact: reportSourceContact,
+    summaryDateRange,
+    summaryMessageTypes,
+    modelConfig: aiModelConfig
+  })
 
   const waitForPaint = (): Promise<void> =>
     new Promise((resolve) => window.setTimeout(resolve, 80))
@@ -307,7 +331,7 @@ function App(): React.ReactElement {
       }
       if (!AUTO_LOGIN_ENABLED) return
       try {
-        const result: any = await window.api.initDb(key)
+        const result = await window.api.initDb(key)
         if (!active) return
         const success = typeof result === 'boolean' ? result : result.success
         if (success) {
@@ -325,7 +349,7 @@ function App(): React.ReactElement {
           setDbKeyStatusKind('error')
           setBootState('login')
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         if (!active) return
         const message = error instanceof Error ? error.message : String(error)
         setDbKeyStatus(`自动连接失败: ${message}`)
@@ -714,6 +738,147 @@ function App(): React.ReactElement {
     }
   }
 
+  const isGroupContact = (contact: Contact | null): boolean =>
+    Boolean(contact?.type === 'group' || contact?.m_nsUsrName?.endsWith('@chatroom'))
+
+  const handlePageChange = (page: AppPage): void => {
+    setActivePage(page)
+    if (page === 'report' && isGroupContact(selectedContact) && !reportSourceContact) {
+      setReportSourceContact(selectedContact)
+    }
+  }
+
+  const handleOpenReportWorkspace = (): void => {
+    if (!selectedContact) {
+      setReportNotice('请先选择一个群聊')
+      window.setTimeout(() => setReportNotice(''), 3200)
+      return
+    }
+    if (!isGroupContact(selectedContact)) {
+      setReportNotice('AI 群聊日报仅支持群聊')
+      window.setTimeout(() => setReportNotice(''), 3200)
+      return
+    }
+    setReportNotice('')
+    setReportSourceContact(selectedContact)
+    setActivePage('report')
+  }
+
+  const handleSelectReportSource = (contact: Contact): void => {
+    setReportSourceContact(contact)
+    if (selectedContact?.md5 !== contact.md5) {
+      void handleSelectContact(contact)
+    }
+  }
+
+  const handleSaveAiModelConfig = (): void => {
+    localStorage.setItem('ai_api_key', aiModelConfig.apiKey)
+    localStorage.setItem('ai_base_url', aiModelConfig.baseURL)
+    localStorage.setItem('ai_model', aiModelConfig.model)
+  }
+
+  const renderPlaceholderPage = (page: Exclude<AppPage, 'archive' | 'report'>): React.ReactElement => {
+    const labels: Record<Exclude<AppPage, 'archive' | 'report'>, string> = {
+      search: '检索',
+      export: '导出',
+      api: 'API',
+      settings: '设置'
+    }
+    return (
+      <div className="app-page-placeholder">
+        <div className="app-page-placeholder-eyebrow">WechatExplorer</div>
+        <h2>{labels[page]}</h2>
+        <p>这个工作区会在后续 UI 重构阶段接入真实功能。</p>
+      </div>
+    )
+  }
+
+  const renderArchiveWorkspace = (): React.ReactElement => (
+    <div className="app-container">
+      <Sidebar
+        contacts={filteredContacts}
+        selectedContact={selectedContact}
+        onSelectContact={handleSelectContact}
+        onSearch={handleSearchContacts}
+        onContentFilter={setContentFilter}
+        width={sidebarWidth}
+        dateRange={dateRange}
+        onDateRangeChange={handleDateRangeChange}
+        selfInfo={selfInfo}
+        dbReady={isAuthenticated}
+        onOpenSettings={() => setShowSettings(true)}
+      />
+      <div className="resizer" onMouseDown={startResizing} />
+      <ChatWindow
+        key={selectedContact?.md5}
+        contact={selectedContact}
+        messages={messages}
+        isLoadingMessages={isMessagesLoading}
+        contentFilter={contentFilter}
+        dateRange={dateRange}
+        onContentFilterChange={setContentFilter}
+        onRefresh={() => selectedContact && handleSelectContact(selectedContact)}
+        onRefreshData={loadContacts}
+        onCreateGroupReport={handleOpenReportWorkspace}
+        isAiLoading={reportGeneration.isGenerating}
+      />
+    </div>
+  )
+
+  const renderReportWorkspace = (): React.ReactElement => (
+    <div className="report-page">
+      <ReportSourceSidebar
+        contacts={contacts}
+        selectedContact={reportSourceContact}
+        selfInfo={selfInfo}
+        dbReady={isAuthenticated}
+        onSelectContact={handleSelectReportSource}
+        onOpenSettings={() => setShowSettings(true)}
+      />
+      <AiReportWorkspace
+        sourceContact={reportSourceContact}
+        summaryDateRange={summaryDateRange}
+        summaryMessageTypes={summaryMessageTypes}
+        modelConfig={aiModelConfig}
+        rangeMessageCount={reportGeneration.rangeMessages.length}
+        reportMessageCount={reportGeneration.reportMessages.length}
+        messageTypeCounts={reportGeneration.messageTypeCounts}
+        rangeState={reportGeneration.rangeState}
+        phase={reportGeneration.phase}
+        error={reportGeneration.error}
+        generatedImage={reportGeneration.generatedImage}
+        reportPaths={reportGeneration.reportPaths}
+        isGenerating={reportGeneration.isGenerating}
+        onSummaryDateRangeChange={setSummaryDateRange}
+        onSummaryMessageTypesChange={setSummaryMessageTypes}
+        onOpenModelSettings={() => setShowSettings(true)}
+        onGenerate={() => void reportGeneration.generate()}
+        onCloseResult={reportGeneration.closeResult}
+        onCopyImage={reportGeneration.copyImage}
+        onRevealReport={reportGeneration.revealReport}
+      />
+      <ReportTaskStatusPanel
+        phase={reportGeneration.phase}
+        error={reportGeneration.error}
+        onRetry={() => void reportGeneration.retry()}
+      />
+    </div>
+  )
+
+  const renderCurrentWorkspace = (): React.ReactElement => {
+    switch (activePage) {
+      case 'archive':
+        return renderArchiveWorkspace()
+      case 'report':
+        return renderReportWorkspace()
+      case 'search':
+      case 'export':
+      case 'api':
+      case 'settings':
+        return renderPlaceholderPage(activePage)
+    }
+  }
+
   const [sidebarWidth, setSidebarWidth] = useState(300)
   const [isResizing, setIsResizing] = useState(false)
   const sidebarResizeStartRef = React.useRef({ x: 0, width: 300 })
@@ -844,46 +1009,24 @@ function App(): React.ReactElement {
       activePage={activePage}
       selfInfo={selfInfo}
       dbReady={isAuthenticated}
-      onPageChange={setActivePage}
+      onPageChange={handlePageChange}
       onOpenSettings={() => {
         setActivePage('settings')
         setShowSettings(true)
       }}
     >
-      <div className="app-container">
-        <Sidebar
-          contacts={filteredContacts}
-          selectedContact={selectedContact}
-          onSelectContact={handleSelectContact}
-          onSearch={handleSearchContacts}
-          onContentFilter={setContentFilter}
-          width={sidebarWidth}
-          dateRange={dateRange}
-          onDateRangeChange={handleDateRangeChange}
-          selfInfo={selfInfo}
-          dbReady={isAuthenticated}
-          onOpenSettings={() => setShowSettings(true)}
-        />
-        <div className="resizer" onMouseDown={startResizing} />
-        <ChatWindow
-          key={selectedContact?.md5}
-          contact={selectedContact}
-          messages={messages}
-          isLoadingMessages={isMessagesLoading}
-          contentFilter={contentFilter}
-          dateRange={dateRange}
-          onContentFilterChange={setContentFilter}
-          onRefresh={() => selectedContact && handleSelectContact(selectedContact)}
-          onRefreshData={loadContacts}
-        />
-      </div>
+      {reportNotice && <div className="app-toast">{reportNotice}</div>}
+      {renderCurrentWorkspace()}
       <SettingsPanel
         open={showSettings}
         selfInfo={selfInfo}
         dbReady={isAuthenticated}
         dbKey={dbKey}
+        aiModelConfig={aiModelConfig}
         onClose={() => setShowSettings(false)}
         onDbKeyChange={setDbKey}
+        onAiModelConfigChange={setAiModelConfig}
+        onSaveAiModelConfig={handleSaveAiModelConfig}
         onDbRootChanged={() => {
           void refreshSelfInfo()
           void loadContacts()

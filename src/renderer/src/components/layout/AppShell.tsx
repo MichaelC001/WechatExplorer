@@ -57,16 +57,8 @@ export function AppShell({
           <AccountSummary selfInfo={selfInfo} dbReady={dbReady} compact onClick={onOpenSettings} />
         </div>
       </aside>
-      <main className="app-shell-main">
-        {activePage === 'archive' ? (
-          children
-        ) : (
-          <div className="app-page-placeholder">
-            <div className="app-page-placeholder-eyebrow">WechatExplorer</div>
-            <h2>{activeItem?.label || '工作区'}</h2>
-            <p>这个工作区会在后续 UI 重构阶段接入真实功能。</p>
-          </div>
-        )}
+      <main className="app-shell-main" aria-label={activeItem?.label || '工作区'}>
+        {children}
       </main>
     </div>
   )

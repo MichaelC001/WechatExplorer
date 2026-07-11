@@ -1,10 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Message, Contact } from '../../../shared/types'
-import {
-  buildGroupReportInput,
-  GROUP_REPORT_SYSTEM_PROMPT,
-  parseGroupDailyReport
-} from '../utils/group-report'
 import { ChatHeader } from './chat/ChatHeader'
 import { ChatStatusBar } from './chat/ChatStatusBar'
 import { DataTrustBar } from './chat/DataTrustBar'
@@ -21,18 +16,11 @@ interface ChatWindowProps {
   onContentFilterChange?: (keyword: string) => void
   onRefresh?: () => void
   onRefreshData?: () => void
+  onCreateGroupReport?: () => void
+  isAiLoading?: boolean
 }
 
-type SummaryDateRange = 'today' | 'yesterday' | '7days'
-type SummaryMessageType = 'text' | 'image' | 'sticker' | 'video' | 'voice' | 'share' | 'system'
-
-const SUMMARY_DATE_OPTIONS: { value: SummaryDateRange; label: string }[] = [
-  { value: 'today', label: '今天' },
-  { value: 'yesterday', label: '昨日' },
-  { value: '7days', label: '最近 7 天' }
-]
 const MAX_RENDERED_MESSAGES = 600
-const REPORT_STEP_TIMEOUT_MS = 90_000
 const DATE_RANGE_LABELS: Record<string, string> = {
   today: '今天',
   yesterday: '昨日',
@@ -71,52 +59,6 @@ const getChatHeaderRangeLabel = (range: string): string => {
   return DATE_RANGE_LABELS[range] || '当前范围'
 }
 
-const withTimeout = async <T,>(promise: Promise<T>, label: string): Promise<T> => {
-  let timer: number | undefined
-  const timeout = new Promise<never>((_, reject) => {
-    timer = window.setTimeout(() => reject(new Error(`${label} 超时`)), REPORT_STEP_TIMEOUT_MS)
-  })
-  try {
-    return await Promise.race([promise, timeout])
-  } finally {
-    if (timer) window.clearTimeout(timer)
-  }
-}
-
-const isInternalName = (value?: string): boolean => {
-  const text = String(value || '').trim()
-  return (
-    !text || /^wxid_/i.test(text) || /@chatroom$/i.test(text) || /^[a-z0-9_-]{18,}$/i.test(text)
-  )
-}
-
-const SUMMARY_TYPE_OPTIONS: {
-  value: SummaryMessageType
-  label: string
-  messageTypes: string[]
-}[] = [
-  { value: 'text', label: '文本', messageTypes: ['普通文本'] },
-  { value: 'image', label: '图片', messageTypes: ['图片'] },
-  { value: 'sticker', label: '表情包', messageTypes: ['表情包'] },
-  { value: 'video', label: '视频', messageTypes: ['视频'] },
-  { value: 'voice', label: '语音', messageTypes: ['语音'] },
-  { value: 'share', label: '分享/引用', messageTypes: ['分享消息', '名片', '位置', '通话'] },
-  { value: 'system', label: '系统消息', messageTypes: ['系统消息'] }
-]
-
-const getSummaryDateRange = (range: SummaryDateRange): { startTime: number; endTime: number } => {
-  const now = new Date()
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000
-  const endTime = Math.floor(Date.now() / 1000)
-  if (range === 'yesterday') {
-    return { startTime: startOfToday - 86400, endTime: startOfToday - 1 }
-  }
-  if (range === '7days') {
-    return { startTime: startOfToday - 6 * 86400, endTime }
-  }
-  return { startTime: startOfToday, endTime }
-}
-
 const ChatWindow: React.FC<ChatWindowProps> = ({
   contact,
   messages,
@@ -125,15 +67,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   dateRange = 'today',
   onContentFilterChange,
   onRefresh,
-  onRefreshData
+  onRefreshData,
+  onCreateGroupReport,
+  isAiLoading = false
 }) => {
   const isGroupChat = Boolean(
     contact?.type === 'group' || contact?.m_nsUsrName?.endsWith('@chatroom')
   )
   const messageListRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const [generatedImage, setGeneratedImage] = useState<string | null>(null)
-  const [reportPaths, setReportPaths] = useState<{ htmlPath: string; pngPath: string } | null>(null)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
   const [imageScale, setImageScale] = useState(0.75)
   const [imageRotation, setImageRotation] = useState(0)
@@ -143,35 +85,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     null
   )
   const [showAvatar, setShowAvatar] = useState(true)
-
-  // AI Settings
-  const [showSettingsModal, setShowSettingsModal] = useState(false)
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('ai_api_key') || '')
-  const [baseURL, setBaseURL] = useState(
-    () => localStorage.getItem('ai_base_url') || 'https://api.deepseek.com'
-  )
-  const [model, setModel] = useState(() => localStorage.getItem('ai_model') || 'deepseek-chat')
-  const [summaryDateRange, setSummaryDateRange] = useState<SummaryDateRange>('today')
-  const [summaryMessageTypes, setSummaryMessageTypes] = useState<SummaryMessageType[]>(['text'])
   const [isAtLatest, setIsAtLatest] = useState(true)
-
-  const handleSaveSettings = (): void => {
-    if (!summaryMessageTypes.length) {
-      alert('请至少选择一种消息类型')
-      return
-    }
-    localStorage.setItem('ai_api_key', apiKey)
-    localStorage.setItem('ai_base_url', baseURL)
-    localStorage.setItem('ai_model', model)
-    setShowSettingsModal(false)
-    AIChat()
-  }
-
-  const toggleSummaryMessageType = (type: SummaryMessageType): void => {
-    setSummaryMessageTypes((current) =>
-      current.includes(type) ? current.filter((item) => item !== type) : [...current, type]
-    )
-  }
 
   const scrollToBottom = useCallback((): void => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'auto' })
@@ -185,7 +99,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   }, [])
 
   useEffect(() => {
-    scrollToBottom()
+    const frame = window.requestAnimationFrame(() => scrollToBottom())
+    return () => window.cancelAnimationFrame(frame)
   }, [messages, scrollToBottom])
 
   const openImagePreview = (imageUrl: string): void => {
@@ -316,87 +231,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     document.body.removeChild(link)
   }
 
-  const [isLoading, setIsLoading] = useState(false)
-
-  const AIChat = async (): Promise<void> => {
-    if (!contact) return
-    if (!summaryMessageTypes.length) {
-      alert('请至少选择一种消息类型')
-      return
-    }
-    setIsLoading(true)
-    try {
-      const { startTime, endTime } = getSummaryDateRange(summaryDateRange)
-      const rangeMessages = await window.api.getMessages(contact.md5, startTime, endTime)
-      const allowedTypes = new Set(
-        SUMMARY_TYPE_OPTIONS.filter((option) => summaryMessageTypes.includes(option.value)).flatMap(
-          (option) => option.messageTypes
-        )
-      )
-      const reportMessages = rangeMessages.filter((message) => allowedTypes.has(message.type))
-      if (!reportMessages.length) throw new Error('当前条件下没有可总结的消息')
-
-      let memberMap = new Map<string, { nickname: string; avatar: string }>()
-      if (isGroupChat) {
-        try {
-          const snapshot = await withTimeout(window.api.getGroupSnapshot(contact.md5), '读取群成员')
-          memberMap = new Map(
-            (snapshot?.members || []).map((member) => [
-              member.wxid,
-              { nickname: member.nickname || member.wxid, avatar: member.avatar || '' }
-            ])
-          )
-        } catch (error) {
-          console.warn('[GroupReport] member snapshot failed:', error)
-        }
-      }
-      const namedReportMessages = reportMessages.map((message) => {
-        if (!isGroupChat || !isInternalName(message.name)) return message
-        const senderId = String(message.senderId || message.name || '')
-        const member = memberMap.get(senderId)
-        if (!member?.nickname || isInternalName(member.nickname)) return message
-        return { ...message, name: member.nickname, img: message.img || member.avatar }
-      })
-      const input = buildGroupReportInput(namedReportMessages, contact, isGroupChat)
-      console.log('🚀 ~ AIChat ~ input:', input)
-      console.log('🚀 ~ AIChat ~ input.prompt:', input.prompt)
-      const result = await withTimeout(
-        window.api.aiChat(
-          [
-            { role: 'system', content: GROUP_REPORT_SYSTEM_PROMPT },
-            { role: 'user', content: input.prompt }
-          ],
-          { apiKey, model, baseURL }
-        ),
-        'AI 生成日报'
-      )
-
-      if (!result.success || !result.data) throw new Error(result.error || 'AI 请求失败')
-      const report = parseGroupDailyReport(result.data, input.topSpeakers, input.activeTimeline)
-      const exported = await withTimeout(
-        window.api.exportGroupReport({ report, metadata: input.metadata }),
-        '日报图片导出'
-      )
-      if (!exported.success || !exported.imageDataUrl || !exported.htmlPath || !exported.pngPath) {
-        throw new Error(exported.error || '日报文件生成失败')
-      }
-      setGeneratedImage(exported.imageDataUrl)
-      setReportPaths({ htmlPath: exported.htmlPath, pngPath: exported.pngPath })
-    } catch (error) {
-      console.error('AI Call Failed:', error)
-      alert(`AI 日报生成失败：${error instanceof Error ? error.message : String(error)}`)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-  const handleCopyImage = async (): Promise<void> => {
-    if (!generatedImage) return
-    const result = await window.api.copyImage(generatedImage)
-    if (result.success) {
-      alert('复制成功')
-    }
-  }
-
   const filteredMessages = React.useMemo(() => {
     return messages.filter((msg) => {
       const filterTypes = (import.meta.env.VITE_FILTER_MSG_TYPES || '')
@@ -427,13 +261,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         loadedCount={messages.length}
         filteredCount={filteredMessages.length}
         contentFilter={contentFilter || ''}
-        isAiLoading={isLoading}
+        isAiLoading={isAiLoading}
         canExport={messages.length > 0}
         onContentFilterChange={onContentFilterChange || (() => undefined)}
         onRefresh={onRefresh}
         onRefreshData={onRefreshData}
         onExport={handleExport}
-        onOpenAiSettings={() => setShowSettingsModal(true)}
+        onOpenAiSettings={onCreateGroupReport || (() => undefined)}
       />
       <DataTrustBar messageCount={messages.length} />
       <MessageList
@@ -455,64 +289,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         onShowAvatarChange={setShowAvatar}
         onJumpToLatest={scrollToBottom}
       />
-
-      {/* 加载模态框 */}
-      {isLoading && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ textAlign: 'center', minWidth: '200px' }}>
-            <div style={{ fontSize: '16px', color: '#333' }}>正在生成群聊日报...</div>
-            <div style={{ fontSize: '12px', color: '#999', marginTop: '10px' }}>
-              正在分析记录、处理头像并生成 HTML 和长图
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 图片预览模态框 */}
-      {generatedImage && (
-        <div className="modal-overlay" onClick={() => setGeneratedImage(null)}>
-          <div className="modal-content image-preview-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="report-preview-frame">
-              <div className="report-preview-scroller">
-                <img
-                  src={generatedImage}
-                  alt="Generated Summary"
-                  className="report-preview-image"
-                />
-              </div>
-            </div>
-            <div className="report-preview-actions">
-              <button
-                onClick={handleCopyImage}
-                style={{
-                  padding: '8px 15px',
-                  cursor: 'pointer',
-                  backgroundColor: '#4CAF50',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px'
-                }}
-              >
-                复制图片
-              </button>
-              {reportPaths && (
-                <button
-                  onClick={() => window.api.revealGroupReport(reportPaths.pngPath)}
-                  style={{ padding: '5px 10px', cursor: 'pointer' }}
-                >
-                  在文件夹中显示
-                </button>
-              )}
-              <button
-                onClick={() => setGeneratedImage(null)}
-                style={{ padding: '5px 10px', cursor: 'pointer' }}
-              >
-                关闭
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {previewImage && (
         <div className="image-viewer-overlay" onClick={closeImagePreview}>
@@ -559,100 +335,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                   transform: `translate(${imageOffset.x}px, ${imageOffset.y}px) scale(${imageScale}) rotate(${imageRotation}deg)`
                 }}
               />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AI Settings Modal */}
-      {showSettingsModal && (
-        <div className="modal-overlay" onClick={() => setShowSettingsModal(false)}>
-          <div className="modal-content ai-settings-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>AI 设置</h3>
-            <div className="ai-filter-section">
-              <div className="ai-filter-label">时间范围</div>
-              <div className="ai-date-options">
-                {SUMMARY_DATE_OPTIONS.map((option) => (
-                  <label
-                    key={option.value}
-                    className={summaryDateRange === option.value ? 'selected' : ''}
-                  >
-                    <input
-                      type="radio"
-                      name="summary-date-range"
-                      value={option.value}
-                      checked={summaryDateRange === option.value}
-                      onChange={() => setSummaryDateRange(option.value)}
-                    />
-                    {option.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="ai-filter-section">
-              <div className="ai-filter-label">消息类型</div>
-              <div className="ai-type-options">
-                {SUMMARY_TYPE_OPTIONS.map((option) => (
-                  <label key={option.value}>
-                    <input
-                      type="checkbox"
-                      checked={summaryMessageTypes.includes(option.value)}
-                      onChange={() => toggleSummaryMessageType(option.value)}
-                    />
-                    {option.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="form-group" style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'block', marginBottom: '5px' }}>模型服务:</label>
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                style={{ width: '100%', padding: '8px' }}
-              >
-                <option value="deepseek-chat">DeepSeek Chat</option>
-                <option value="gpt-4o">GPT-4o</option>
-                <option value="gpt-4o-mini">GPT-4o Mini</option>
-                <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                <option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet</option>
-                <option value="moonshot-v1-8k">Moonshot V1</option>
-              </select>
-            </div>
-            <div className="form-group" style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'block', marginBottom: '5px' }}>Base URL:</label>
-              <input
-                type="text"
-                value={baseURL}
-                onChange={(e) => setBaseURL(e.target.value)}
-                placeholder="https://api.deepseek.com"
-                style={{ width: '95%', padding: '8px' }}
-              />
-            </div>
-            <div className="form-group" style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', marginBottom: '5px' }}>API Key:</label>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Enter your API Key"
-                style={{ width: '95%', padding: '8px' }}
-              />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button onClick={() => setShowSettingsModal(false)}>取消</button>
-              <button
-                onClick={handleSaveSettings}
-                style={{
-                  backgroundColor: '#4CAF50',
-                  color: 'white',
-                  border: 'none',
-                  padding: '8px 15px',
-                  borderRadius: '4px'
-                }}
-              >
-                生成总结
-              </button>
             </div>
           </div>
         </div>

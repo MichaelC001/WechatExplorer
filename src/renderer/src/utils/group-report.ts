@@ -11,6 +11,65 @@ import {
   ReportTopic
 } from '../../../shared/group-report'
 
+export type SummaryDateRange = 'today' | 'yesterday' | '7days'
+export type SummaryMessageType = 'text' | 'image' | 'sticker' | 'video' | 'voice' | 'share' | 'system'
+
+export const SUMMARY_DATE_OPTIONS: { value: SummaryDateRange; label: string }[] = [
+  { value: 'today', label: '今天' },
+  { value: 'yesterday', label: '昨日' },
+  { value: '7days', label: '近 7 天' }
+]
+
+export const SUMMARY_TYPE_OPTIONS: {
+  value: SummaryMessageType
+  label: string
+  messageTypes: string[]
+  description: string
+}[] = [
+  {
+    value: 'text',
+    label: '文本',
+    messageTypes: ['普通文本'],
+    description: '使用文本内容、发送者和时间。'
+  },
+  {
+    value: 'image',
+    label: '图片',
+    messageTypes: ['图片'],
+    description: '不做视觉识别，仅使用图片类型、发送者和时间。'
+  },
+  {
+    value: 'sticker',
+    label: '表情包',
+    messageTypes: ['表情包'],
+    description: '不理解表情内容，仅按类型参与统计。'
+  },
+  {
+    value: 'video',
+    label: '视频',
+    messageTypes: ['视频'],
+    description: '不理解视频画面，仅按类型参与统计。'
+  },
+  {
+    value: 'voice',
+    label: '语音',
+    messageTypes: ['语音'],
+    description: '当前不转写语音，仅参与数量和活跃度统计。'
+  },
+  {
+    value: 'share',
+    label: '分享/引用',
+    messageTypes: ['分享消息', '名片', '位置', '通话'],
+    description: '使用解析到的标题、引用文本或类型信息。'
+  },
+  {
+    value: 'system',
+    label: '系统消息',
+    messageTypes: ['系统消息'],
+    description: '使用系统消息文本或类型信息。'
+  }
+]
+
 export const GROUP_REPORT_SYSTEM_PROMPT = `你是微信群聊日报编辑。请仅根据用户提供的聊天记录生成结构化中文日报。
 
 原则：
@@ -45,6 +104,28 @@ topics 提取 3 至 7 个，参与者最多 5 人，quotes 最多 3 组，keywor
 
 const isInternalIdentifier = (value: string): boolean =>
   /@chatroom$/i.test(value) || /^wxid_/i.test(value) || /^[a-z0-9_-]{18,}$/i.test(value)
+
+export const getSummaryDateRange = (
+  range: SummaryDateRange
+): { startTime: number; endTime: number } => {
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000
+  const endTime = Math.floor(Date.now() / 1000)
+  if (range === 'yesterday') {
+    return { startTime: startOfToday - 86400, endTime: startOfToday - 1 }
+  }
+  if (range === '7days') {
+    return { startTime: startOfToday - 6 * 86400, endTime }
+  }
+  return { startTime: startOfToday, endTime }
+}
+
+export const isInternalName = (value?: string): boolean => {
+  const text = String(value || '').trim()
+  return (
+    !text || /^wxid_/i.test(text) || /@chatroom$/i.test(text) || /^[a-z0-9_-]{18,}$/i.test(text)
+  )
+}
 
 const summarySender = (message: Message, contact: Contact | null, isGroup: boolean): string => {
   if (message.from === 'assistant') {

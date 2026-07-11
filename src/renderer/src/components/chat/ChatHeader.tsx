@@ -124,7 +124,7 @@ export function ChatHeader({
           type="button"
           className="chat-ai-button"
           onClick={onOpenAiSettings}
-          disabled={!isGroupChat || isAiLoading}
+          disabled={isAiLoading}
           title={isGroupChat ? '生成 AI 日报' : 'AI 日报当前仅支持群聊'}
         >
           <AiIcon />
