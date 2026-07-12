@@ -70,7 +70,17 @@ declare global {
       aiChat: (
         messages: { role: string; content: string }[],
         options?: { apiKey?: string; model?: string; baseURL?: string }
-      ) => Promise<{ success: boolean; data?: string; error?: string }>
+      ) => Promise<{
+        success: boolean
+        data?: string
+        usage?: {
+          input?: number
+          output?: number
+          total?: number
+          estimated?: boolean
+        }
+        error?: string
+      }>
       copyImage: (base64String: string) => Promise<{ success: boolean; error?: string }>
       getVoiceData: (
         sessionId: string,
@@ -84,7 +94,13 @@ declare global {
         imageDatNameOrThumb?: string | boolean,
         sessionId?: string,
         options?: { force?: boolean }
-      ) => Promise<{ success: boolean; data?: string; error?: string; isThumb?: boolean; filePath?: string }>
+      ) => Promise<{
+        success: boolean
+        data?: string
+        error?: string
+        isThumb?: boolean
+        filePath?: string
+      }>
       getSticker: (
         cdnUrl?: string,
         md5?: string
@@ -141,15 +157,17 @@ declare global {
         }
         settingsPath: string
       }>
-      setSettings: (patch: Partial<{
-        dbRoot: string
-        apiEnabled: boolean
-        apiHost: string
-        apiPort: number
-        imageKeyRoot: string
-        imageXorKey: string
-        imageAesKey: string
-      }>) => Promise<{
+      setSettings: (
+        patch: Partial<{
+          dbRoot: string
+          apiEnabled: boolean
+          apiHost: string
+          apiPort: number
+          imageKeyRoot: string
+          imageXorKey: string
+          imageAesKey: string
+        }>
+      ) => Promise<{
         settings: {
           dbRoot: string
           apiEnabled: boolean

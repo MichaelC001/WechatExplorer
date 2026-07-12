@@ -38,6 +38,25 @@ export interface ReportGenerationResult {
   paths: ReportPaths
 }
 
+export interface ReportGenerationLog {
+  label: string
+  startedAt: string
+  endedAt: string
+  duration: number
+}
+
+export interface ReportGenerationMetadata {
+  durationMs?: number
+  modelName?: string
+  tokenUsage?: {
+    input?: number
+    output?: number
+    total?: number
+    estimated?: boolean
+  }
+  generationLogs: ReportGenerationLog[]
+}
+
 interface UseGroupReportGenerationArgs {
   sourceContact: Contact | null
   summaryDateRange: SummaryDateRange
@@ -62,7 +81,7 @@ export interface RangeMessageState {
   error: string
 }
 
-const withTimeout = async <T,>(promise: Promise<T>, label: string): Promise<T> => {
+const withTimeout = async <T>(promise: Promise<T>, label: string): Promise<T> => {
   let timer: number | undefined
   const timeout = new Promise<never>((_, reject) => {
     timer = window.setTimeout(() => reject(new Error(`${label} 超时`)), REPORT_STEP_TIMEOUT_MS)
@@ -87,10 +106,25 @@ const selectedMessageTypeSet = (types: SummaryMessageType[]): Set<string> =>
     )
   )
 
-const applyGroupMemberNames = async (
-  contact: Contact,
-  messages: Message[]
-): Promise<Message[]> => {
+const estimateTokenCount = (length: number): number => Math.max(1, Math.ceil(length / 1.6))
+
+const estimateTokenUsage = (
+  inputMessages: { role: string; content: string }[],
+  output: string
+): NonNullable<ReportGenerationMetadata['tokenUsage']> => {
+  const inputLength = inputMessages.reduce((total, message) => total + message.content.length, 0)
+  const outputLength = output.replace(/\s+/g, '').length
+  const input = estimateTokenCount(inputLength)
+  const outputCount = estimateTokenCount(outputLength)
+  return {
+    input,
+    output: outputCount,
+    total: input + outputCount,
+    estimated: true
+  }
+}
+
+const applyGroupMemberNames = async (contact: Contact, messages: Message[]): Promise<Message[]> => {
   let memberMap = new Map<string, { nickname: string; avatar: string }>()
   try {
     const snapshot = await withTimeout(window.api.getGroupSnapshot(contact.md5), '读取群成员')
@@ -128,9 +162,11 @@ export function useGroupReportGeneration({
   rangeState: RangeMessageState
   generatedImage: string | null
   reportPaths: ReportPaths | null
+  generationMetadata: ReportGenerationMetadata
   isGenerating: boolean
   generate: () => Promise<void>
   retry: () => Promise<void>
+  resetGenerationStatus: () => void
   clearError: () => void
   closeResult: () => void
   copyImage: () => Promise<{ success: boolean; error?: string }>
@@ -142,6 +178,9 @@ export function useGroupReportGeneration({
   const [rangeState, setRangeState] = useState<RangeMessageState>({ status: 'idle', error: '' })
   const [generatedImage, setGeneratedImage] = useState<string | null>(null)
   const [reportPaths, setReportPaths] = useState<ReportPaths | null>(null)
+  const [generationMetadata, setGenerationMetadata] = useState<ReportGenerationMetadata>({
+    generationLogs: []
+  })
   const rangeRequestIdRef = useRef(0)
 
   const isGenerating =
@@ -218,6 +257,14 @@ export function useGroupReportGeneration({
     [allowedTypes, rangeMessages]
   )
 
+  const resetGenerationStatus = useCallback((): void => {
+    setPhase('idle')
+    setError('')
+    setGeneratedImage(null)
+    setReportPaths(null)
+    setGenerationMetadata({ generationLogs: [] })
+  }, [])
+
   const generate = useCallback(async (): Promise<void> => {
     if (isGenerating) return
     if (!sourceContact) {
@@ -241,35 +288,65 @@ export function useGroupReportGeneration({
       return
     }
 
+    const startGenerateTime = Date.now()
+    const logs: ReportGenerationLog[] = []
+    const pushLog = (log: ReportGenerationLog): void => {
+      logs.push(log)
+      setGenerationMetadata({
+        modelName: modelConfig.model,
+        generationLogs: [...logs]
+      })
+    }
+    const createStepLog = (label: string, startedAt: Date, endedAt: Date): ReportGenerationLog => ({
+      label,
+      startedAt: startedAt.toISOString(),
+      endedAt: endedAt.toISOString(),
+      duration: endedAt.getTime() - startedAt.getTime()
+    })
+    const trackStep = async <T>(label: string, task: () => Promise<T>): Promise<T> => {
+      const startedAt = new Date()
+      try {
+        return await task()
+      } finally {
+        pushLog(createStepLog(label, startedAt, new Date()))
+      }
+    }
+
     setError('')
     setGeneratedImage(null)
     setReportPaths(null)
+    setGenerationMetadata({
+      modelName: modelConfig.model,
+      generationLogs: []
+    })
 
     try {
-      const sourceMessages =
-        rangeState.status === 'success' ? rangeMessages : await loadRangeMessages(true)
-      if (rangeState.status === 'success') setPhase('loadingMessages')
+      const sourceMessages = await trackStep('读取聊天记录', () => loadRangeMessages(true))
 
       const selectedTypes = selectedMessageTypeSet(summaryMessageTypes)
       const filteredMessages = sourceMessages.filter((message) => selectedTypes.has(message.type))
       if (!filteredMessages.length) throw new Error('当前范围没有可总结消息')
 
       setPhase('preparingInput')
-      const namedReportMessages = await applyGroupMemberNames(sourceContact, filteredMessages)
-      const input = buildGroupReportInput(namedReportMessages, sourceContact, true)
+      const input = await trackStep('整理输入', async () => {
+        const namedReportMessages = await applyGroupMemberNames(sourceContact, filteredMessages)
+        return buildGroupReportInput(namedReportMessages, sourceContact, true)
+      })
 
       setPhase('requestingModel')
-      const result = await withTimeout(
-        window.api.aiChat(
-          [
-            { role: 'system', content: GROUP_REPORT_SYSTEM_PROMPT },
-            { role: 'user', content: input.prompt }
-          ],
-          modelConfig
-        ),
-        'AI 生成日报'
+      const aiMessages = [
+        { role: 'system', content: GROUP_REPORT_SYSTEM_PROMPT },
+        { role: 'user', content: input.prompt }
+      ]
+      const result = await trackStep('AI 生成', () =>
+        withTimeout(window.api.aiChat(aiMessages, modelConfig), 'AI 生成日报')
       )
       if (!result.success || !result.data) throw new Error(result.error || 'AI 请求失败')
+
+      const tokenUsage =
+        result.usage && result.usage.total
+          ? result.usage
+          : estimateTokenUsage(aiMessages, result.data)
 
       const report = parseGroupDailyReport(result.data, input.topSpeakers, input.activeTimeline)
 
@@ -281,23 +358,39 @@ export function useGroupReportGeneration({
       if (!exported.success || !exported.imageDataUrl || !exported.htmlPath || !exported.pngPath) {
         throw new Error(exported.error || '日报文件生成失败')
       }
+      if (exported.exportTimings?.html) {
+        pushLog({
+          label: 'HTML 导出',
+          ...exported.exportTimings.html
+        })
+      }
+      if (exported.exportTimings?.png) {
+        pushLog({
+          label: 'PNG 导出',
+          ...exported.exportTimings.png
+        })
+      }
+      const exportFinishedAt =
+        exported.exportTimings?.png?.endedAt || exported.exportTimings?.html?.endedAt
+      const exportFinishTime = exportFinishedAt ? Date.parse(exportFinishedAt) : Date.now()
 
       setGeneratedImage(exported.imageDataUrl)
       setReportPaths({ htmlPath: exported.htmlPath, pngPath: exported.pngPath })
+      setGenerationMetadata({
+        durationMs:
+          Number.isFinite(exportFinishTime) && exportFinishTime > startGenerateTime
+            ? exportFinishTime - startGenerateTime
+            : Date.now() - startGenerateTime,
+        modelName: modelConfig.model,
+        tokenUsage,
+        generationLogs: [...logs]
+      })
       setPhase('success')
     } catch (generateError) {
       setError(errorMessage(generateError))
       setPhase('error')
     }
-  }, [
-    isGenerating,
-    loadRangeMessages,
-    modelConfig,
-    rangeMessages,
-    rangeState.status,
-    sourceContact,
-    summaryMessageTypes
-  ])
+  }, [isGenerating, loadRangeMessages, modelConfig, sourceContact, summaryMessageTypes])
 
   const clearError = useCallback((): void => {
     setError('')
@@ -327,9 +420,11 @@ export function useGroupReportGeneration({
     rangeState,
     generatedImage,
     reportPaths,
+    generationMetadata,
     isGenerating,
     generate,
     retry: generate,
+    resetGenerationStatus,
     clearError,
     closeResult,
     copyImage,

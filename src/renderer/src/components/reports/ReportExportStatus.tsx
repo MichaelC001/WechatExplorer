@@ -3,13 +3,11 @@ import type { GeneratedReportRecord } from './types'
 
 interface ReportExportStatusProps {
   report: GeneratedReportRecord | null
-  imageSize: { width: number; height: number } | null
   onReveal: (report: GeneratedReportRecord) => Promise<{ success: boolean; error?: string }>
 }
 
 export function ReportExportStatus({
   report,
-  imageSize,
   onReveal
 }: ReportExportStatusProps): React.ReactElement {
   const [status, setStatus] = React.useState('')
@@ -40,11 +38,11 @@ export function ReportExportStatus({
           <span>PNG 长图</span>
           <b>{report.pngStatus === 'ready' ? '已保存' : '缺失'}</b>
         </div>
-        {imageSize && (
+        {report.imageSize && (
           <div>
             <span>图片尺寸</span>
             <b>
-              {imageSize.width} x {imageSize.height}
+              {report.imageSize.width} x {report.imageSize.height}
             </b>
           </div>
         )}

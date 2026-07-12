@@ -106,9 +106,7 @@ const enrichAvatarsFromGroup = async (metadata: GroupReportMetadata): Promise<vo
   const snapshot = getGroupSnapshot(resolved.md5)
   if (!snapshot) {
     metadata.warnings = metadata.warnings ?? []
-    metadata.warnings.push(
-      `enrich skipped: group snapshot not available for "${metadata.talker}"`
-    )
+    metadata.warnings.push(`enrich skipped: group snapshot not available for "${metadata.talker}"`)
     return
   }
 
@@ -331,14 +329,30 @@ export const exportGroupReport = async (
     const baseName = `${sanitizeFileName(request.metadata.groupName)}日报_${request.metadata.reportDate}_可视化长图`
     const htmlPath = path.join(outputDir, `${baseName}.html`)
     const pngPath = path.join(outputDir, `${baseName}.png`)
+    const htmlStartedAt = new Date()
     const html = await renderReportHtml(request)
     await fs.writeFile(htmlPath, html, 'utf8')
+    const htmlEndedAt = new Date()
+    const pngStartedAt = new Date()
     const imageDataUrl = await captureFullPage(htmlPath, pngPath)
+    const pngEndedAt = new Date()
     return {
       success: true,
       htmlPath,
       pngPath,
       imageDataUrl,
+      exportTimings: {
+        html: {
+          startedAt: htmlStartedAt.toISOString(),
+          endedAt: htmlEndedAt.toISOString(),
+          duration: htmlEndedAt.getTime() - htmlStartedAt.getTime()
+        },
+        png: {
+          startedAt: pngStartedAt.toISOString(),
+          endedAt: pngEndedAt.toISOString(),
+          duration: pngEndedAt.getTime() - pngStartedAt.getTime()
+        }
+      },
       warnings: request.metadata.warnings?.length ? request.metadata.warnings : undefined
     }
   } catch (error) {

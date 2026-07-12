@@ -11,7 +11,6 @@ interface ReportViewerProps {
   onRegenerate: () => void
   onCopyImage: (report: GeneratedReportRecord) => Promise<{ success: boolean; error?: string }>
   onReveal: (report: GeneratedReportRecord) => Promise<{ success: boolean; error?: string }>
-  onImageSizeChange: (size: { width: number; height: number } | null) => void
 }
 
 export function ReportViewer({
@@ -20,8 +19,7 @@ export function ReportViewer({
   onBackToConfigure,
   onRegenerate,
   onCopyImage,
-  onReveal,
-  onImageSizeChange
+  onReveal
 }: ReportViewerProps): React.ReactElement {
   const [zoom, setZoom] = useState(1)
   const [status, setStatus] = useState('')
@@ -35,10 +33,9 @@ export function ReportViewer({
       setImageError('')
       setZoom(1)
       setNaturalSize(null)
-      onImageSizeChange(null)
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [onImageSizeChange, report?.id])
+  }, [report?.id])
 
   const title = useMemo(
     () => (report ? `${report.contactName} 群聊日报` : 'AI 日报'),
@@ -111,16 +108,13 @@ export function ReportViewer({
               }}
               onLoad={(event) => {
                 const image = event.currentTarget
-                const size = {
+                setNaturalSize({
                   width: image.naturalWidth,
                   height: image.naturalHeight
-                }
-                setNaturalSize(size)
-                onImageSizeChange(size)
+                })
               }}
               onError={() => {
                 setImageError('日报图片加载失败')
-                onImageSizeChange(null)
               }}
             />
           </div>

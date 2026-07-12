@@ -4,7 +4,6 @@ import { ReportExportStatus } from './ReportExportStatus'
 
 interface ReportSettingsPanelProps {
   report: GeneratedReportRecord | null
-  imageSize: { width: number; height: number } | null
   onReveal: (report: GeneratedReportRecord) => Promise<{ success: boolean; error?: string }>
 }
 
@@ -16,7 +15,6 @@ const formatGeneratedAt = (value: string): string => {
 
 export function ReportSettingsPanel({
   report,
-  imageSize,
   onReveal
 }: ReportSettingsPanelProps): React.ReactElement {
   const [copyStatus, setCopyStatus] = useState('')
@@ -59,7 +57,7 @@ export function ReportSettingsPanel({
           <p>尚未选择报告。</p>
         )}
       </section>
-      <ReportExportStatus report={report} imageSize={imageSize} onReveal={onReveal} />
+      <ReportExportStatus report={report} onReveal={onReveal} />
       <section className="report-settings-section">
         <h3>文件路径</h3>
         {path ? (

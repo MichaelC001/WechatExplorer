@@ -15,6 +15,28 @@ export interface GeneratedReportRecord {
   htmlStatus: ReportAssetStatus
   pngStatus: ReportAssetStatus
   generatedImage?: string
+  imageSize?: {
+    width: number
+    height: number
+  }
+  duration?: number
+  modelName?: string
+  tokenUsage?: {
+    input?: number
+    output?: number
+    total?: number
+    estimated?: boolean
+  }
+  fileSize?: {
+    html?: number
+    png?: number
+  }
+  generationLogs?: {
+    label: string
+    startedAt: string
+    endedAt: string
+    duration: number
+  }[]
 }
 
 export interface SaveGeneratedReportRequest {
@@ -27,6 +49,20 @@ export interface SaveGeneratedReportRequest {
   generatedImage?: string
   htmlPath?: string
   pngPath?: string
+  duration?: number
+  modelName?: string
+  tokenUsage?: {
+    input?: number
+    output?: number
+    total?: number
+    estimated?: boolean
+  }
+  generationLogs?: {
+    label: string
+    startedAt: string
+    endedAt: string
+    duration: number
+  }[]
 }
 
 export interface ReportHistoryResult {

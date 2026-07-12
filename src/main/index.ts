@@ -21,15 +21,8 @@ import { DatabaseKeyStore } from './database-key-store'
 import { KeyServiceMac } from './key-service-mac'
 import { KeyService as KeyServiceWin } from './key-service-win'
 import * as chat from './services/chat-service'
-import {
-  apiServer
-} from './http-server'
-import {
-  loadSettings,
-  saveSettings,
-  getSettingsPath,
-  AppSettings
-} from './services/settings-store'
+import { apiServer } from './http-server'
+import { loadSettings, saveSettings, getSettingsPath, AppSettings } from './services/settings-store'
 import {
   getBootstrapCache,
   getCachedMessages,
@@ -57,7 +50,8 @@ let tray: Tray | null = null
 // WCDB's Windows runtime checks the host application name during wcdb_init.
 // Mirroring WeFlow's name unblocks the -1006 init failure on Windows.
 app.setName(process.platform === 'win32' ? 'WeFlow' : 'WechatExplorer')
-let dbInitInFlight: Promise<{ success: boolean; monitoring?: boolean; error?: string }> | null = null
+let dbInitInFlight: Promise<{ success: boolean; monitoring?: boolean; error?: string }> | null =
+  null
 const BUILD_MARK = 'wechat4-local-http-api-2026-07-03'
 const TRAY_MODE =
   process.argv.includes('--tray') || (process.env['WXE_TRAY'] || '').toString() === '1'
@@ -69,7 +63,10 @@ function normalizeImageXorKey(value: unknown): string {
     ? Number.parseInt(raw.slice(2), 16)
     : Number.parseInt(raw, 10)
   if (!Number.isFinite(parsed)) return raw
-  return `0x${Math.max(0, parsed & 0xff).toString(16).toUpperCase().padStart(2, '0')}`
+  return `0x${Math.max(0, parsed & 0xff)
+    .toString(16)
+    .toUpperCase()
+    .padStart(2, '0')}`
 }
 
 function getConfiguredImageKeys(): { xorKey: string; aesKey: string } {
@@ -79,7 +76,6 @@ function getConfiguredImageKeys(): { xorKey: string; aesKey: string } {
     aesKey: settings.imageAesKey || import.meta.env.VITE_IMAGE_AES_KEY || ''
   }
 }
-
 
 function createWindow(): void {
   // 鍒涘缓娴忚鍣ㄧ獥鍙?
@@ -145,40 +141,40 @@ app.whenReady().then(async () => {
     if (dbInitInFlight) return dbInitInFlight
 
     dbInitInFlight = (async () => {
-    try {
-      const trimmedKey = String(key || '').trim()
-      console.log(`db:init build=${BUILD_MARK} keyLength=${trimmedKey.length}`)
-      const settings = loadSettings()
-      if (
-        chat.isReady() &&
-        chat.getCurrentKey().replace(/^0x/i, '').trim() === trimmedKey.replace(/^0x/i, '') &&
-        (!settings.dbRoot || chat.getCurrentAccountRoot() === settings.dbRoot)
-      ) {
-        console.log('[WCDB4] db:init reuse current connection')
-        return { success: true, monitoring: true }
-      }
-      const nextWechatDb = await WechatDb.create(key, settings.dbRoot)
-      const resolvedRoot = nextWechatDb.getWcdb4Client().getAccountRoot()
-      if (resolvedRoot && resolvedRoot !== settings.dbRoot) {
-        saveSettings({ ...settings, dbRoot: resolvedRoot })
-      }
-      chat.setChatDb(nextWechatDb)
-      const wcdb4Client = nextWechatDb.getWcdb4Client()
-      voiceService = new VoiceService(wcdb4Client)
-      stickerService = new StickerService(wcdb4Client)
-      const monitoring = wcdb4Client.startMonitor((type, json) => {
-        for (const window of BrowserWindow.getAllWindows()) {
-          if (!window.isDestroyed()) window.webContents.send('wcdb-change', { type, json })
+      try {
+        const trimmedKey = String(key || '').trim()
+        console.log(`db:init build=${BUILD_MARK} keyLength=${trimmedKey.length}`)
+        const settings = loadSettings()
+        if (
+          chat.isReady() &&
+          chat.getCurrentKey().replace(/^0x/i, '').trim() === trimmedKey.replace(/^0x/i, '') &&
+          (!settings.dbRoot || chat.getCurrentAccountRoot() === settings.dbRoot)
+        ) {
+          console.log('[WCDB4] db:init reuse current connection')
+          return { success: true, monitoring: true }
         }
-      })
-      imageDecryptService = null
-      return { success: true, monitoring }
-    } catch (error) {
-      console.error('Failed to init DB:', error)
-      return { success: false, error: error instanceof Error ? error.message : String(error) }
-    } finally {
-      dbInitInFlight = null
-    }
+        const nextWechatDb = await WechatDb.create(key, settings.dbRoot)
+        const resolvedRoot = nextWechatDb.getWcdb4Client().getAccountRoot()
+        if (resolvedRoot && resolvedRoot !== settings.dbRoot) {
+          saveSettings({ ...settings, dbRoot: resolvedRoot })
+        }
+        chat.setChatDb(nextWechatDb)
+        const wcdb4Client = nextWechatDb.getWcdb4Client()
+        voiceService = new VoiceService(wcdb4Client)
+        stickerService = new StickerService(wcdb4Client)
+        const monitoring = wcdb4Client.startMonitor((type, json) => {
+          for (const window of BrowserWindow.getAllWindows()) {
+            if (!window.isDestroyed()) window.webContents.send('wcdb-change', { type, json })
+          }
+        })
+        imageDecryptService = null
+        return { success: true, monitoring }
+      } catch (error) {
+        console.error('Failed to init DB:', error)
+        return { success: false, error: error instanceof Error ? error.message : String(error) }
+      } finally {
+        dbInitInFlight = null
+      }
     })()
 
     return dbInitInFlight
@@ -191,7 +187,9 @@ app.whenReady().then(async () => {
     return databaseKeyStore.save(clipboardKey)
   })
 
-  ipcMain.handle('key:saveDbKey', async (_, key: string) => databaseKeyStore.save(String(key || '')))
+  ipcMain.handle('key:saveDbKey', async (_, key: string) =>
+    databaseKeyStore.save(String(key || ''))
+  )
 
   ipcMain.handle('key:clearSavedDbKey', async () => databaseKeyStore.clear())
 
@@ -258,7 +256,9 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('db:getContacts', (_, filter?: string) => {
     const accountRoot = chat.getCurrentAccountRoot()
-    const contacts = accountRoot ? mergeCachedContactAvatars(accountRoot, chat.listContacts(filter)) : chat.listContacts(filter)
+    const contacts = accountRoot
+      ? mergeCachedContactAvatars(accountRoot, chat.listContacts(filter))
+      : chat.listContacts(filter)
     if (!filter && chat.isReady() && accountRoot) {
       saveBootstrapContacts(accountRoot, contacts)
     }
@@ -316,7 +316,18 @@ app.whenReady().then(async () => {
           messages: messages as any,
           model: model
         })
-        return { success: true, data: completion.choices[0].message.content }
+        return {
+          success: true,
+          data: completion.choices[0].message.content,
+          usage: completion.usage
+            ? {
+                input: completion.usage.prompt_tokens,
+                output: completion.usage.completion_tokens,
+                total: completion.usage.total_tokens,
+                estimated: false
+              }
+            : undefined
+        }
       } catch (error: unknown) {
         console.error('AI API Error:', error)
         const errorMessage = error instanceof Error ? error.message : 'Unknown error'
@@ -441,10 +452,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('settings:set', (_, patch: Partial<AppSettings>) => {
     const before = loadSettings()
     const merged = saveSettings({ ...before, ...patch })
-    if (
-      before.imageXorKey !== merged.imageXorKey ||
-      before.imageAesKey !== merged.imageAesKey
-    ) {
+    if (before.imageXorKey !== merged.imageXorKey || before.imageAesKey !== merged.imageAesKey) {
       imageDecryptService = null
     }
     return { settings: merged, settingsPath: getSettingsPath() }

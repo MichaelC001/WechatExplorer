@@ -6,16 +6,13 @@ import { AppShell } from './components/layout/AppShell'
 import { AppPage } from './components/layout/navigation'
 import { AiReportWorkspace } from './components/reports/AiReportWorkspace'
 import { ReportHistorySidebar } from './components/reports/ReportHistorySidebar'
-import { ReportSettingsPanel } from './components/reports/ReportSettingsPanel'
+import { ReportInfoPanel } from './components/reports/ReportInfoPanel'
 import { ReportSourceSidebar } from './components/reports/ReportSourceSidebar'
 import { ReportTaskStatusPanel } from './components/reports/ReportTaskStatusPanel'
 import { ReportViewer } from './components/reports/ReportViewer'
 import { contactDisplayName } from './components/reports/types'
 import type { GeneratedReportRecord, ReportWorkspaceView } from './components/reports/types'
-import {
-  AiModelConfig,
-  useGroupReportGeneration
-} from './hooks/useGroupReportGeneration'
+import { AiModelConfig, useGroupReportGeneration } from './hooks/useGroupReportGeneration'
 import { SummaryDateRange, SummaryMessageType } from './utils/group-report'
 import { Contact, Message } from '../../shared/types'
 
@@ -33,14 +30,7 @@ function EyeIcon({ hidden }: { hidden: boolean }): React.ReactElement {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <circle
-        cx="12"
-        cy="12"
-        r="3"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-      />
+      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
       {hidden && (
         <path
           d="M4 4l16 16"
@@ -65,7 +55,9 @@ const MAC_KEY_FAQ_URL = 'https://github.com/hicccc77/WeFlow/blob/main/docs/MAC-K
 const MESSAGE_MONITOR_DEBOUNCE_MS = 8000
 const VIEW_MESSAGE_LIMIT = 600
 const AUTO_LOGIN_ENABLED = ['1', 'true', 'yes', 'on'].includes(
-  String(import.meta.env.VITE_AUTO_LOGIN || '').trim().toLowerCase()
+  String(import.meta.env.VITE_AUTO_LOGIN || '')
+    .trim()
+    .toLowerCase()
 )
 
 const getMessageIdentity = (message: Message): string => {
@@ -175,10 +167,8 @@ function App(): React.ReactElement {
   const [reportWorkspaceView, setReportWorkspaceView] = useState<ReportWorkspaceView>('result')
   const [generatedReports, setGeneratedReports] = useState<GeneratedReportRecord[]>([])
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null)
-  const [selectedReportImageSize, setSelectedReportImageSize] = useState<{
-    width: number
-    height: number
-  } | null>(null)
+  const [latestGeneratedReportId, setLatestGeneratedReportId] = useState<string | null>(null)
+  const [isSavingGeneratedReport, setIsSavingGeneratedReport] = useState(false)
   const [reportNotice, setReportNotice] = useState('')
   const [summaryDateRange, setSummaryDateRange] = useState<SummaryDateRange>('today')
   const [summaryMessageTypes, setSummaryMessageTypes] = useState<SummaryMessageType[]>(['text'])
@@ -225,8 +215,7 @@ function App(): React.ReactElement {
     }
   }, [])
 
-  const waitForPaint = (): Promise<void> =>
-    new Promise((resolve) => window.setTimeout(resolve, 80))
+  const waitForPaint = (): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, 80))
 
   const refreshSelfInfo = async (): Promise<void> => {
     try {
@@ -317,10 +306,18 @@ function App(): React.ReactElement {
         )
         if (Object.keys(avatars).length === 0) continue
         setContacts((current) =>
-          current.map((contact) => avatars[contact.m_nsUsrName] ? { ...contact, avatar: avatars[contact.m_nsUsrName] } : contact)
+          current.map((contact) =>
+            avatars[contact.m_nsUsrName]
+              ? { ...contact, avatar: avatars[contact.m_nsUsrName] }
+              : contact
+          )
         )
         setFilteredContacts((current) =>
-          current.map((contact) => avatars[contact.m_nsUsrName] ? { ...contact, avatar: avatars[contact.m_nsUsrName] } : contact)
+          current.map((contact) =>
+            avatars[contact.m_nsUsrName]
+              ? { ...contact, avatar: avatars[contact.m_nsUsrName] }
+              : contact
+          )
         )
       } catch (error) {
         console.warn('[Contacts] avatar hydrate failed:', error)
@@ -375,9 +372,7 @@ function App(): React.ReactElement {
           void refreshSelfInfo()
         } else {
           const error = typeof result === 'boolean' ? '' : result.error
-          setDbKeyStatus(
-            `自动连接失败，请重新输入${error ? `: ${error}` : ''}`
-          )
+          setDbKeyStatus(`自动连接失败，请重新输入${error ? `: ${error}` : ''}`)
           setDbKeyStatusKind('error')
           setBootState('login')
         }
@@ -399,6 +394,8 @@ function App(): React.ReactElement {
       active = false
       unsubscribe()
     }
+    // 自动连接只在应用启动时执行一次，避免联系人加载刷新触发重复连接。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   React.useEffect(() => {
@@ -658,7 +655,10 @@ function App(): React.ReactElement {
             if (selectedContactMd5Ref.current !== contact.md5) return
             if (!snapshot) return
             setMessages((current) =>
-              applyGroupMemberMeta(contact, mergeSyntheticMessages(contact, current, snapshot.roomId))
+              applyGroupMemberMeta(
+                contact,
+                mergeSyntheticMessages(contact, current, snapshot.roomId)
+              )
             )
           })
         }, 120)
@@ -672,23 +672,33 @@ function App(): React.ReactElement {
     setDateRange(range)
     if (selectedContact) {
       const { startTime, endTime } = getDateRangeParams(range)
-      window.api.getCachedMessages(selectedContact.md5, startTime, endTime).then((cachedMessages) => {
-        if (!cachedMessages.length) return
-        setMessages(
-          applyGroupMemberMeta(
-            selectedContact,
-            mergeSyntheticMessages(selectedContact, cachedMessages.slice(-VIEW_MESSAGE_LIMIT))
+      window.api
+        .getCachedMessages(selectedContact.md5, startTime, endTime)
+        .then((cachedMessages) => {
+          if (!cachedMessages.length) return
+          setMessages(
+            applyGroupMemberMeta(
+              selectedContact,
+              mergeSyntheticMessages(selectedContact, cachedMessages.slice(-VIEW_MESSAGE_LIMIT))
+            )
           )
-        )
-      })
+        })
       setIsMessagesLoading(true)
-      window.api.getMessages(selectedContact.md5, startTime, endTime, { limit: VIEW_MESSAGE_LIMIT }).then((nextMessages) => {
-        setMessages(applyGroupMemberMeta(selectedContact, mergeSyntheticMessages(selectedContact, nextMessages)))
-        setIsMessagesLoading(false)
-      }).catch((error) => {
-        console.warn('[Messages] date range load failed:', error)
-        setIsMessagesLoading(false)
-      })
+      window.api
+        .getMessages(selectedContact.md5, startTime, endTime, { limit: VIEW_MESSAGE_LIMIT })
+        .then((nextMessages) => {
+          setMessages(
+            applyGroupMemberMeta(
+              selectedContact,
+              mergeSyntheticMessages(selectedContact, nextMessages)
+            )
+          )
+          setIsMessagesLoading(false)
+        })
+        .catch((error) => {
+          console.warn('[Messages] date range load failed:', error)
+          setIsMessagesLoading(false)
+        })
     }
   }
 
@@ -786,8 +796,13 @@ function App(): React.ReactElement {
     if (page === 'report') {
       setReportWorkspaceView('result')
       setSelectedReportId(null)
-      setSelectedReportImageSize(null)
     }
+  }
+
+  const openReport = (reportId: string): void => {
+    setSelectedReportId(reportId)
+    setReportWorkspaceView('result')
+    setActivePage('report')
   }
 
   const handleOpenReportWorkspace = (): void => {
@@ -833,6 +848,8 @@ function App(): React.ReactElement {
     const recordKey = `${reportGeneration.reportPaths.pngPath}:${reportGeneration.reportPaths.htmlPath}`
     if (lastCapturedReportKeyRef.current === recordKey) return
     lastCapturedReportKeyRef.current = recordKey
+    setLatestGeneratedReportId(null)
+    setIsSavingGeneratedReport(true)
 
     const saveReport = async (): Promise<void> => {
       const result = await window.api.saveGeneratedReport({
@@ -849,10 +866,15 @@ function App(): React.ReactElement {
         generatedAt: new Date().toISOString(),
         generatedImage: reportGeneration.generatedImage || undefined,
         htmlPath: reportGeneration.reportPaths?.htmlPath,
-        pngPath: reportGeneration.reportPaths?.pngPath
+        pngPath: reportGeneration.reportPaths?.pngPath,
+        duration: reportGeneration.generationMetadata.durationMs,
+        modelName: reportGeneration.generationMetadata.modelName || aiModelConfig.model,
+        tokenUsage: reportGeneration.generationMetadata.tokenUsage,
+        generationLogs: reportGeneration.generationMetadata.generationLogs
       })
 
       if (!result.success || !result.record) {
+        setIsSavingGeneratedReport(false)
         setReportNotice(result.error || '日报保存失败')
         window.setTimeout(() => setReportNotice(''), 3200)
         return
@@ -862,15 +884,16 @@ function App(): React.ReactElement {
         result.record as GeneratedReportRecord,
         ...current.filter((report) => report.id !== result.record?.id)
       ])
-      setSelectedReportId(result.record.id)
-      setSelectedReportImageSize(null)
-      setReportWorkspaceView('result')
-      setActivePage('report')
+      setLatestGeneratedReportId(result.record.id)
+      setIsSavingGeneratedReport(false)
+      openReport(result.record.id)
     }
 
     void saveReport()
   }, [
+    aiModelConfig.model,
     reportGeneration.generatedImage,
+    reportGeneration.generationMetadata,
     reportGeneration.phase,
     reportGeneration.reportMessages.length,
     reportGeneration.reportPaths,
@@ -878,10 +901,19 @@ function App(): React.ReactElement {
     summaryDateRange
   ])
 
-  const selectedReport =
-    generatedReports.find((report) => report.id === selectedReportId) || null
+  const selectedReport = generatedReports.find((report) => report.id === selectedReportId) || null
 
   const openReportResult = (): void => {
+    if (isSavingGeneratedReport) {
+      setReportNotice('日报正在保存，请稍候')
+      window.setTimeout(() => setReportNotice(''), 2400)
+      return
+    }
+    const targetReportId = latestGeneratedReportId || selectedReportId
+    if (targetReportId) {
+      openReport(targetReportId)
+      return
+    }
     setReportWorkspaceView('result')
   }
 
@@ -921,12 +953,14 @@ function App(): React.ReactElement {
     setGeneratedReports((current) => current.filter((report) => report.id !== reportId))
     if (selectedReportId === reportId) {
       setSelectedReportId(null)
-      setSelectedReportImageSize(null)
     }
+    if (latestGeneratedReportId === reportId) setLatestGeneratedReportId(null)
     return { success: true }
   }
 
-  const renderPlaceholderPage = (page: Exclude<AppPage, 'archive' | 'report'>): React.ReactElement => {
+  const renderPlaceholderPage = (
+    page: Exclude<AppPage, 'archive' | 'report'>
+  ): React.ReactElement => {
     const labels: Record<Exclude<AppPage, 'archive' | 'report'>, string> = {
       search: '检索',
       export: '导出',
@@ -974,7 +1008,7 @@ function App(): React.ReactElement {
     </div>
   )
 
-  const renderReportWorkspace = (): React.ReactElement => (
+  const renderReportWorkspace = (): React.ReactElement =>
     reportWorkspaceView === 'result' ? (
       <div className="report-center-page">
         <ReportHistorySidebar
@@ -982,10 +1016,7 @@ function App(): React.ReactElement {
           selectedReportId={selectedReportId}
           selfInfo={selfInfo}
           dbReady={isAuthenticated}
-          onSelectReport={(reportId) => {
-            setSelectedReportId(reportId)
-            setSelectedReportImageSize(null)
-          }}
+          onSelectReport={openReport}
           onCreateReport={openReportConfigure}
           onDeleteReport={handleDeleteReport}
           onOpenSettings={() => setShowSettings(true)}
@@ -997,13 +1028,8 @@ function App(): React.ReactElement {
           onRegenerate={handleRegenerateReport}
           onCopyImage={handleCopyReportImage}
           onReveal={handleRevealReport}
-          onImageSizeChange={setSelectedReportImageSize}
         />
-        <ReportSettingsPanel
-          report={selectedReport}
-          imageSize={selectedReportImageSize}
-          onReveal={handleRevealReport}
-        />
+        <ReportInfoPanel report={selectedReport} onReveal={handleRevealReport} />
       </div>
     ) : (
       <div className="report-page">
@@ -1032,7 +1058,10 @@ function App(): React.ReactElement {
           onSummaryDateRangeChange={setSummaryDateRange}
           onSummaryMessageTypesChange={setSummaryMessageTypes}
           onOpenModelSettings={() => setShowSettings(true)}
-          onGenerate={() => void reportGeneration.generate()}
+          onGenerate={() => {
+            reportGeneration.resetGenerationStatus()
+            void reportGeneration.generate()
+          }}
           onCloseResult={reportGeneration.closeResult}
           onCopyImage={reportGeneration.copyImage}
           onRevealReport={reportGeneration.revealReport}
@@ -1042,11 +1071,13 @@ function App(): React.ReactElement {
         <ReportTaskStatusPanel
           phase={reportGeneration.phase}
           error={reportGeneration.error}
-          onRetry={() => void reportGeneration.retry()}
+          onRetry={() => {
+            reportGeneration.resetGenerationStatus()
+            void reportGeneration.retry()
+          }}
         />
       </div>
     )
-  )
 
   const renderCurrentWorkspace = (): React.ReactElement => {
     switch (activePage) {
@@ -1103,7 +1134,8 @@ function App(): React.ReactElement {
 
   if (!isAuthenticated && bootState !== 'login') {
     const title =
-      startupProgress?.title || (bootState === 'connecting' ? '正在自动连接数据库...' : '正在准备...')
+      startupProgress?.title ||
+      (bootState === 'connecting' ? '正在自动连接数据库...' : '正在准备...')
     const subtitle =
       startupProgress?.subtitle ||
       (bootState === 'connecting'

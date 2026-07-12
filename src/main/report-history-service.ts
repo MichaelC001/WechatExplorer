@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { app, nativeImage } from 'electron'
 import { promises as fs } from 'fs'
 import path from 'path'
 import type {
@@ -50,6 +50,26 @@ const readPngAsDataUrl = async (filePath?: string): Promise<string | undefined> 
   return `data:image/png;base64,${content.toString('base64')}`
 }
 
+const readPngSize = async (
+  filePath?: string
+): Promise<{ width: number; height: number } | undefined> => {
+  if (!filePath || !(await exists(filePath))) return undefined
+  const image = nativeImage.createFromPath(filePath)
+  if (image.isEmpty()) return undefined
+  const size = image.getSize()
+  return size.width && size.height ? size : undefined
+}
+
+const readFileSize = async (filePath?: string): Promise<number | undefined> => {
+  if (!filePath) return undefined
+  try {
+    const stat = await fs.stat(filePath)
+    return stat.isFile() ? stat.size : undefined
+  } catch {
+    return undefined
+  }
+}
+
 const normalizeRecord = async (
   record: GeneratedReportRecord,
   jsonPath: string
@@ -61,7 +81,12 @@ const normalizeRecord = async (
     jsonPath,
     htmlStatus,
     pngStatus,
-    generatedImage: await readPngAsDataUrl(record.pngPath)
+    generatedImage: await readPngAsDataUrl(record.pngPath),
+    imageSize: await readPngSize(record.pngPath),
+    fileSize: {
+      html: await readFileSize(record.htmlPath),
+      png: await readFileSize(record.pngPath)
+    }
   }
 }
 
@@ -109,9 +134,7 @@ export async function saveGeneratedReport(
 ): Promise<SaveGeneratedReportResult> {
   try {
     const generatedAtDate = new Date(request.generatedAt)
-    const timestamp = Number.isFinite(generatedAtDate.getTime())
-      ? generatedAtDate
-      : new Date()
+    const timestamp = Number.isFinite(generatedAtDate.getTime()) ? generatedAtDate : new Date()
     const year = String(timestamp.getFullYear())
     const month = pad2(timestamp.getMonth() + 1)
     const directory = path.join(getReportsRoot(), year, month)
@@ -152,7 +175,16 @@ export async function saveGeneratedReport(
       pngPath: savedPngPath,
       jsonPath,
       htmlStatus: savedHtmlPath ? 'ready' : 'missing',
-      pngStatus: savedPngPath ? 'ready' : 'missing'
+      pngStatus: savedPngPath ? 'ready' : 'missing',
+      imageSize: await readPngSize(savedPngPath),
+      duration: request.duration,
+      modelName: request.modelName,
+      tokenUsage: request.tokenUsage,
+      fileSize: {
+        html: await readFileSize(savedHtmlPath),
+        png: await readFileSize(savedPngPath)
+      },
+      generationLogs: request.generationLogs
     }
 
     await fs.writeFile(jsonPath, JSON.stringify(record, null, 2), 'utf8')
@@ -168,7 +200,9 @@ export async function saveGeneratedReport(
   }
 }
 
-export async function deleteGeneratedReport(reportId: string): Promise<DeleteGeneratedReportResult> {
+export async function deleteGeneratedReport(
+  reportId: string
+): Promise<DeleteGeneratedReportResult> {
   try {
     const jsonFiles = await walkJsonFiles(getReportsRoot())
     for (const jsonPath of jsonFiles) {
@@ -191,7 +225,10 @@ export async function deleteGeneratedReport(reportId: string): Promise<DeleteGen
         )
         return { success: true, deletedId: reportId }
       } catch (error) {
-        console.warn(`[ReportHistory] skip invalid report record while deleting: ${jsonPath}`, error)
+        console.warn(
+          `[ReportHistory] skip invalid report record while deleting: ${jsonPath}`,
+          error
+        )
       }
     }
     return { success: false, error: '未找到要删除的日报记录' }

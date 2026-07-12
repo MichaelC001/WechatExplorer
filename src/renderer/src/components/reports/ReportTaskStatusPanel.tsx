@@ -1,8 +1,5 @@
 import React from 'react'
-import {
-  REPORT_TASK_STEPS,
-  ReportGenerationPhase
-} from '../../hooks/useGroupReportGeneration'
+import { ReportGenerationPhase } from '../../hooks/useGroupReportGeneration'
 
 interface ReportTaskStatusPanelProps {
   phase: ReportGenerationPhase
@@ -10,8 +7,18 @@ interface ReportTaskStatusPanelProps {
   onRetry: () => void
 }
 
+const TASK_STEPS: Array<{
+  id: Exclude<ReportGenerationPhase, 'idle' | 'success' | 'error'>
+  label: string
+}> = [
+  { id: 'loadingMessages', label: '读取聊天记录' },
+  { id: 'preparingInput', label: '整理日报输入' },
+  { id: 'requestingModel', label: '调用模型生成内容' },
+  { id: 'exportingReport', label: '导出 HTML 与 PNG' }
+]
+
 const phaseIndex = (phase: ReportGenerationPhase): number =>
-  REPORT_TASK_STEPS.findIndex((step) => step.id === phase)
+  TASK_STEPS.findIndex((step) => step.id === phase)
 
 export function ReportTaskStatusPanel({
   phase,
@@ -31,12 +38,12 @@ export function ReportTaskStatusPanel({
             : phase === 'error'
               ? '生成失败'
               : activeIndex >= 0
-                ? `${activeIndex + 1}/${REPORT_TASK_STEPS.length}`
+                ? `${activeIndex + 1}/${TASK_STEPS.length}`
                 : '等待开始'}
         </p>
       </div>
       <div className="report-task-steps">
-        {REPORT_TASK_STEPS.map((step, index) => {
+        {TASK_STEPS.map((step, index) => {
           const state =
             completedAll || (activeIndex >= 0 && index < activeIndex)
               ? 'done'

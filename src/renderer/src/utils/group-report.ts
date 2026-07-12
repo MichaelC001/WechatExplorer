@@ -12,7 +12,14 @@ import {
 } from '../../../shared/group-report'
 
 export type SummaryDateRange = 'today' | 'yesterday' | '7days'
-export type SummaryMessageType = 'text' | 'image' | 'sticker' | 'video' | 'voice' | 'share' | 'system'
+export type SummaryMessageType =
+  | 'text'
+  | 'image'
+  | 'sticker'
+  | 'video'
+  | 'voice'
+  | 'share'
+  | 'system'
 
 export const SUMMARY_DATE_OPTIONS: { value: SummaryDateRange; label: string }[] = [
   { value: 'today', label: '今天' },
@@ -319,6 +326,56 @@ const normalizeHeat = (value: unknown): ReportHeat => {
   return '中'
 }
 
+const repairJsonLikeText = (value: string): string => {
+  let repaired = ''
+  let inString = false
+  let escaped = false
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index]
+
+    if (!inString) {
+      if (char === '"') inString = true
+      repaired += char
+      continue
+    }
+
+    if (escaped) {
+      repaired += char
+      escaped = false
+      continue
+    }
+
+    if (char === '\\') {
+      repaired += char
+      escaped = true
+      continue
+    }
+
+    if (char === '\n') {
+      repaired += '\\n'
+      continue
+    }
+
+    if (char === '\r') {
+      continue
+    }
+
+    if (char === '"') {
+      const nextNonSpace = value.slice(index + 1).match(/\S/)?.[0] || ''
+      if (nextNonSpace && ![',', '}', ']', ':'].includes(nextNonSpace)) {
+        repaired += '\\"'
+        continue
+      }
+      inString = false
+    }
+
+    repaired += char
+  }
+
+  return repaired.replace(/,\s*([}\]])/g, '$1')
+}
+
 const extractJson = (raw: string): unknown => {
   const cleaned = raw
     .trim()
@@ -327,7 +384,16 @@ const extractJson = (raw: string): unknown => {
   const start = cleaned.indexOf('{')
   const end = cleaned.lastIndexOf('}')
   if (start < 0 || end <= start) throw new Error('AI 未返回可解析的日报 JSON')
-  return JSON.parse(cleaned.slice(start, end + 1))
+  const jsonText = cleaned.slice(start, end + 1)
+  try {
+    return JSON.parse(jsonText)
+  } catch (error) {
+    try {
+      return JSON.parse(repairJsonLikeText(jsonText))
+    } catch {
+      throw error
+    }
+  }
 }
 
 export const parseGroupDailyReport = (

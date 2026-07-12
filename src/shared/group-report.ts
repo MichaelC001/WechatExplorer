@@ -95,6 +95,18 @@ export interface GroupReportExportResult {
   htmlPath?: string
   pngPath?: string
   imageDataUrl?: string
+  exportTimings?: {
+    html?: {
+      startedAt: string
+      endedAt: string
+      duration: number
+    }
+    png?: {
+      startedAt: string
+      endedAt: string
+      duration: number
+    }
+  }
   warnings?: string[]
   error?: string
 }
