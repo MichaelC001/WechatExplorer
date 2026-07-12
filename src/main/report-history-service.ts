@@ -3,6 +3,7 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import type {
   GeneratedReportRecord,
+  DeleteGeneratedReportResult,
   ReportAssetStatus,
   ReportHistoryResult,
   SaveGeneratedReportRequest,
@@ -162,6 +163,38 @@ export async function saveGeneratedReport(
         generatedImage: savedPngPath ? await readPngAsDataUrl(savedPngPath) : undefined
       }
     }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+export async function deleteGeneratedReport(reportId: string): Promise<DeleteGeneratedReportResult> {
+  try {
+    const jsonFiles = await walkJsonFiles(getReportsRoot())
+    for (const jsonPath of jsonFiles) {
+      try {
+        const content = await fs.readFile(jsonPath, 'utf8')
+        const record = JSON.parse(content) as GeneratedReportRecord
+        if (record.id !== reportId) continue
+
+        const paths = [record.htmlPath, record.pngPath, jsonPath].filter(
+          (filePath): filePath is string => Boolean(filePath)
+        )
+        await Promise.all(
+          paths.map(async (filePath) => {
+            try {
+              await fs.unlink(filePath)
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+            }
+          })
+        )
+        return { success: true, deletedId: reportId }
+      } catch (error) {
+        console.warn(`[ReportHistory] skip invalid report record while deleting: ${jsonPath}`, error)
+      }
+    }
+    return { success: false, error: '未找到要删除的日报记录' }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }

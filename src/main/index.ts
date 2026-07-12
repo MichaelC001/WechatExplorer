@@ -10,7 +10,11 @@ import { StickerService } from './sticker-service'
 import { parseMessageContent } from './message-parser'
 import { ImageDecryptService } from './image-decrypt-service'
 import { exportGroupReport } from './group-report-service'
-import { listGeneratedReports, saveGeneratedReport } from './report-history-service'
+import {
+  deleteGeneratedReport,
+  listGeneratedReports,
+  saveGeneratedReport
+} from './report-history-service'
 import type { GroupReportExportRequest } from '../shared/group-report'
 import type { SaveGeneratedReportRequest } from '../shared/report-history'
 import { DatabaseKeyStore } from './database-key-store'
@@ -341,6 +345,10 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('report:saveGenerated', async (_, request: SaveGeneratedReportRequest) => {
     return saveGeneratedReport(request)
+  })
+
+  ipcMain.handle('report:deleteGenerated', async (_, reportId: string) => {
+    return deleteGeneratedReport(reportId)
   })
 
   ipcMain.handle('report:reveal', async (_, filePath: string) => {

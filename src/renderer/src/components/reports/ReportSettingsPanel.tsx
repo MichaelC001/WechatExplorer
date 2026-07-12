@@ -36,7 +36,7 @@ export function ReportSettingsPanel({
     <aside className="report-settings-panel">
       <header>
         <h2>报告信息</h2>
-        <p>当前本地日报资产的真实保存状态</p>
+        <p>当前选中报告的本地资产状态</p>
       </header>
       <section className="report-settings-section">
         <h3>生成信息</h3>
@@ -75,8 +75,8 @@ export function ReportSettingsPanel({
         )}
       </section>
       <section className="report-settings-section muted">
-        <h3>暂未支持</h3>
-        <p>云同步、报告编辑器、模板切换和复杂历史数据库不属于本阶段。</p>
+        <h3>说明</h3>
+        <p>删除历史日报只会删除本地生成报告，不会影响微信聊天记录。</p>
       </section>
     </aside>
   )

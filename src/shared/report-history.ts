@@ -40,3 +40,9 @@ export interface SaveGeneratedReportResult {
   record?: GeneratedReportRecord
   error?: string
 }
+
+export interface DeleteGeneratedReportResult {
+  success: boolean
+  deletedId?: string
+  error?: string
+}

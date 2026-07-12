@@ -216,7 +216,9 @@ function App(): React.ReactElement {
       }
       const reports = result.reports || []
       setGeneratedReports(reports)
-      setSelectedReportId((current) => current || reports[0]?.id || null)
+      setSelectedReportId((current) =>
+        current && reports.some((report) => report.id === current) ? current : null
+      )
     } catch (error) {
       setReportNotice(error instanceof Error ? error.message : String(error))
       window.setTimeout(() => setReportNotice(''), 3200)
@@ -783,7 +785,8 @@ function App(): React.ReactElement {
     }
     if (page === 'report') {
       setReportWorkspaceView('result')
-      if (!selectedReportId && generatedReports[0]) setSelectedReportId(generatedReports[0].id)
+      setSelectedReportId(null)
+      setSelectedReportImageSize(null)
     }
   }
 
@@ -876,10 +879,9 @@ function App(): React.ReactElement {
   ])
 
   const selectedReport =
-    generatedReports.find((report) => report.id === selectedReportId) || generatedReports[0] || null
+    generatedReports.find((report) => report.id === selectedReportId) || null
 
   const openReportResult = (): void => {
-    if (generatedReports[0] && !selectedReportId) setSelectedReportId(generatedReports[0].id)
     setReportWorkspaceView('result')
   }
 
@@ -908,6 +910,20 @@ function App(): React.ReactElement {
     const filePath = report.pngPath || report.htmlPath
     if (!filePath) return { success: false, error: '当前报告缺少文件路径' }
     return window.api.revealGroupReport(filePath)
+  }
+
+  const handleDeleteReport = async (
+    reportId: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    const result = await window.api.deleteGeneratedReport(reportId)
+    if (!result.success) return { success: false, error: result.error || '删除日报失败' }
+
+    setGeneratedReports((current) => current.filter((report) => report.id !== reportId))
+    if (selectedReportId === reportId) {
+      setSelectedReportId(null)
+      setSelectedReportImageSize(null)
+    }
+    return { success: true }
   }
 
   const renderPlaceholderPage = (page: Exclude<AppPage, 'archive' | 'report'>): React.ReactElement => {
@@ -963,7 +979,7 @@ function App(): React.ReactElement {
       <div className="report-center-page">
         <ReportHistorySidebar
           reports={generatedReports}
-          selectedReportId={selectedReport?.id || null}
+          selectedReportId={selectedReportId}
           selfInfo={selfInfo}
           dbReady={isAuthenticated}
           onSelectReport={(reportId) => {
@@ -971,10 +987,12 @@ function App(): React.ReactElement {
             setSelectedReportImageSize(null)
           }}
           onCreateReport={openReportConfigure}
+          onDeleteReport={handleDeleteReport}
           onOpenSettings={() => setShowSettings(true)}
         />
         <ReportViewer
           report={selectedReport}
+          hasReports={generatedReports.length > 0}
           onBackToConfigure={openReportConfigure}
           onRegenerate={handleRegenerateReport}
           onCopyImage={handleCopyReportImage}

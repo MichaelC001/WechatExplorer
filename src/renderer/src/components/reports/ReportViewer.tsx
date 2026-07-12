@@ -6,6 +6,7 @@ import { ReportZoomBar } from './ReportZoomBar'
 
 interface ReportViewerProps {
   report: GeneratedReportRecord | null
+  hasReports: boolean
   onBackToConfigure: () => void
   onRegenerate: () => void
   onCopyImage: (report: GeneratedReportRecord) => Promise<{ success: boolean; error?: string }>
@@ -15,6 +16,7 @@ interface ReportViewerProps {
 
 export function ReportViewer({
   report,
+  hasReports,
   onBackToConfigure,
   onRegenerate,
   onCopyImage,
@@ -39,7 +41,7 @@ export function ReportViewer({
   }, [onImageSizeChange, report?.id])
 
   const title = useMemo(
-    () => (report ? `${report.contactName} 群聊日报` : 'AI 群聊日报'),
+    () => (report ? `${report.contactName} 群聊日报` : 'AI 日报'),
     [report]
   )
 
@@ -66,9 +68,14 @@ export function ReportViewer({
     return (
       <main className="report-viewer">
         <ReportEmptyState
-          title="尚未生成日报"
-          message="生成一份 AI 群聊日报后，可以在这里查看本地保存的长图。"
-          actionLabel="生成新日报"
+          icon="spark"
+          title={hasReports ? '选择一份历史日报' : 'AI日报'}
+          message={
+            hasReports
+              ? '从左侧历史报告中选择一份日报，查看本地保存的长图和文件信息。'
+              : '还没有生成过日报。选择一个群聊，让 AI 自动整理讨论重点、热点话题和重要消息。'
+          }
+          actionLabel="开始生成日报"
           onAction={onBackToConfigure}
         />
       </main>

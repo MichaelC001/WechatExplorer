@@ -40,6 +40,7 @@ const api = {
   listGeneratedReports: () => ipcRenderer.invoke('report:listGenerated'),
   saveGeneratedReport: (request: SaveGeneratedReportRequest) =>
     ipcRenderer.invoke('report:saveGenerated', request),
+  deleteGeneratedReport: (reportId: string) => ipcRenderer.invoke('report:deleteGenerated', reportId),
   revealGroupReport: (filePath: string) => ipcRenderer.invoke('report:reveal', filePath),
   getSavedDbKey: () => ipcRenderer.invoke('key:getSavedDbKey'),
   autoGetDbKey: () => ipcRenderer.invoke('key:autoGetDbKey'),

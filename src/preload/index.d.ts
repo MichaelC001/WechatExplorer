@@ -2,6 +2,7 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 import { Contact, Message } from '../shared/types'
 import { GroupReportExportRequest, GroupReportExportResult } from '../shared/group-report'
 import {
+  DeleteGeneratedReportResult,
   ReportHistoryResult,
   SaveGeneratedReportRequest,
   SaveGeneratedReportResult
@@ -93,6 +94,7 @@ declare global {
       saveGeneratedReport: (
         request: SaveGeneratedReportRequest
       ) => Promise<SaveGeneratedReportResult>
+      deleteGeneratedReport: (reportId: string) => Promise<DeleteGeneratedReportResult>
       revealGroupReport: (filePath: string) => Promise<{ success: boolean; error?: string }>
       getSavedDbKey: () => Promise<{ success: boolean; key?: string; error?: string }>
       autoGetDbKey: () => Promise<{
