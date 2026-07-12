@@ -1,9 +1,10 @@
 ﻿import React, { useState } from 'react'
 import { Sidebar } from './components/Sidebar'
 import ChatWindow from './components/ChatWindow'
-import { SettingsPanel } from './components/SettingsPanel'
 import { AppShell } from './components/layout/AppShell'
 import { ApiWorkspace } from './features/api-center/ApiWorkspace'
+import { SettingsWorkspace } from './features/settings/SettingsWorkspace'
+import type { SettingsCategoryId } from './features/settings/model/types'
 import { AppPage } from './components/layout/navigation'
 import { AiReportWorkspace } from './components/reports/AiReportWorkspace'
 import { ReportHistorySidebar } from './components/reports/ReportHistorySidebar'
@@ -149,6 +150,7 @@ const sortMessagesChronologically = (items: Message[]): Message[] =>
 
 function App(): React.ReactElement {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isDatabaseConnected, setIsDatabaseConnected] = useState(false)
   const [dbKey, setDbKey] = useState(import.meta.env.VITE_DB_KEY || '')
   const [contacts, setContacts] = useState<Contact[]>([])
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
@@ -162,8 +164,8 @@ function App(): React.ReactElement {
   const [dbKeyStatusKind, setDbKeyStatusKind] = useState<'normal' | 'success' | 'error'>('normal')
   const [showDbKey, setShowDbKey] = useState(false)
   const [showMacKeyFaq, setShowMacKeyFaq] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>('archive')
+  const [settingsCategory, setSettingsCategory] = useState<SettingsCategoryId>('account-database')
   const [reportSourceContact, setReportSourceContact] = useState<Contact | null>(null)
   const [reportWorkspaceView, setReportWorkspaceView] = useState<ReportWorkspaceView>('result')
   const [generatedReports, setGeneratedReports] = useState<GeneratedReportRecord[]>([])
@@ -173,7 +175,7 @@ function App(): React.ReactElement {
   const [reportNotice, setReportNotice] = useState('')
   const [summaryDateRange, setSummaryDateRange] = useState<SummaryDateRange>('today')
   const [summaryMessageTypes, setSummaryMessageTypes] = useState<SummaryMessageType[]>(['text'])
-  const [aiModelConfig, setAiModelConfig] = useState<AiModelConfig>(() => ({
+  const [aiModelConfig] = useState<AiModelConfig>(() => ({
     apiKey: localStorage.getItem('ai_api_key') || '',
     baseURL: localStorage.getItem('ai_base_url') || 'https://api.deepseek.com',
     model: localStorage.getItem('ai_model') || 'deepseek-chat'
@@ -367,6 +369,7 @@ function App(): React.ReactElement {
         if (success) {
           setIsNativeMonitorActive(typeof result !== 'boolean' && result.monitoring === true)
           setIsAuthenticated(true)
+          setIsDatabaseConnected(true)
           setDbKeyStatus('已自动连接')
           setDbKeyStatusKind('success')
           await loadContacts()
@@ -448,6 +451,7 @@ function App(): React.ReactElement {
           percent: 100
         })
         setIsAuthenticated(true)
+        setIsDatabaseConnected(true)
         setBootState('login')
         window.setTimeout(() => {
           setStartupProgress(null)
@@ -791,6 +795,7 @@ function App(): React.ReactElement {
 
   const handlePageChange = (page: AppPage): void => {
     setActivePage(page)
+    if (page === 'settings') setSettingsCategory('account-database')
     if (page === 'report' && isGroupContact(selectedContact) && !reportSourceContact) {
       setReportSourceContact(selectedContact)
     }
@@ -798,6 +803,17 @@ function App(): React.ReactElement {
       setReportWorkspaceView('result')
       setSelectedReportId(null)
     }
+  }
+
+  const openSettings = (): void => {
+    setSettingsCategory('account-database')
+    setActivePage('settings')
+  }
+
+  const handleSettingsConnectionChanged = (): void => {
+    void refreshSelfInfo()
+    void loadContacts()
+    void window.api.getSelf().then((result) => setIsDatabaseConnected(result.ready))
   }
 
   const openReport = (reportId: string): void => {
@@ -828,12 +844,6 @@ function App(): React.ReactElement {
     if (selectedContact?.md5 !== contact.md5) {
       void handleSelectContact(contact)
     }
-  }
-
-  const handleSaveAiModelConfig = (): void => {
-    localStorage.setItem('ai_api_key', aiModelConfig.apiKey)
-    localStorage.setItem('ai_base_url', aiModelConfig.baseURL)
-    localStorage.setItem('ai_model', aiModelConfig.model)
   }
 
   React.useEffect(() => {
@@ -989,8 +999,8 @@ function App(): React.ReactElement {
         dateRange={dateRange}
         onDateRangeChange={handleDateRangeChange}
         selfInfo={selfInfo}
-        dbReady={isAuthenticated}
-        onOpenSettings={() => setShowSettings(true)}
+        dbReady={isDatabaseConnected}
+        onOpenSettings={openSettings}
       />
       <div className="resizer" onMouseDown={startResizing} />
       <ChatWindow
@@ -1016,11 +1026,11 @@ function App(): React.ReactElement {
           reports={generatedReports}
           selectedReportId={selectedReportId}
           selfInfo={selfInfo}
-          dbReady={isAuthenticated}
+          dbReady={isDatabaseConnected}
           onSelectReport={openReport}
           onCreateReport={openReportConfigure}
           onDeleteReport={handleDeleteReport}
-          onOpenSettings={() => setShowSettings(true)}
+          onOpenSettings={openSettings}
         />
         <ReportViewer
           report={selectedReport}
@@ -1038,9 +1048,9 @@ function App(): React.ReactElement {
           contacts={contacts}
           selectedContact={reportSourceContact}
           selfInfo={selfInfo}
-          dbReady={isAuthenticated}
+          dbReady={isDatabaseConnected}
           onSelectContact={handleSelectReportSource}
-          onOpenSettings={() => setShowSettings(true)}
+          onOpenSettings={openSettings}
         />
         <AiReportWorkspace
           sourceContact={reportSourceContact}
@@ -1058,7 +1068,7 @@ function App(): React.ReactElement {
           isGenerating={reportGeneration.isGenerating}
           onSummaryDateRangeChange={setSummaryDateRange}
           onSummaryMessageTypesChange={setSummaryMessageTypes}
-          onOpenModelSettings={() => setShowSettings(true)}
+          onOpenModelSettings={openSettings}
           onGenerate={() => {
             reportGeneration.resetGenerationStatus()
             void reportGeneration.generate()
@@ -1090,16 +1100,28 @@ function App(): React.ReactElement {
         return (
           <ApiWorkspace
             selectedContact={selectedContact}
-            dbReady={isAuthenticated}
-            onOpenSettings={() => {
-              setActivePage('settings')
-              setShowSettings(true)
+            dbReady={isDatabaseConnected}
+            onOpenSettings={openSettings}
+          />
+        )
+      case 'settings':
+        return (
+          <SettingsWorkspace
+            selectedCategory={settingsCategory}
+            onCategoryChange={setSettingsCategory}
+            selfInfo={selfInfo}
+            dbReady={isDatabaseConnected}
+            dbKey={dbKey}
+            onConnectionChanged={handleSettingsConnectionChanged}
+            onNotice={(message) => {
+              setReportNotice(message)
+              window.setTimeout(() => setReportNotice(''), 3200)
             }}
+            onOpenSettings={openSettings}
           />
         )
       case 'search':
       case 'export':
-      case 'settings':
         return renderPlaceholderPage(activePage)
     }
   }
@@ -1234,30 +1256,12 @@ function App(): React.ReactElement {
     <AppShell
       activePage={activePage}
       selfInfo={selfInfo}
-      dbReady={isAuthenticated}
+      dbReady={isDatabaseConnected}
       onPageChange={handlePageChange}
-      onOpenSettings={() => {
-        setActivePage('settings')
-        setShowSettings(true)
-      }}
+      onOpenSettings={openSettings}
     >
       {reportNotice && <div className="app-toast">{reportNotice}</div>}
       {renderCurrentWorkspace()}
-      <SettingsPanel
-        open={showSettings}
-        selfInfo={selfInfo}
-        dbReady={isAuthenticated}
-        dbKey={dbKey}
-        aiModelConfig={aiModelConfig}
-        onClose={() => setShowSettings(false)}
-        onDbKeyChange={setDbKey}
-        onAiModelConfigChange={setAiModelConfig}
-        onSaveAiModelConfig={handleSaveAiModelConfig}
-        onDbRootChanged={() => {
-          void refreshSelfInfo()
-          void loadContacts()
-        }}
-      />
     </AppShell>
   )
 }

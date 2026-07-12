@@ -75,6 +75,9 @@ const api = {
   testConnection: (key: string, accountRoot?: string) =>
     ipcRenderer.invoke('db:testConnection', key, accountRoot),
   reopenWithRoot: (accountRoot: string) => ipcRenderer.invoke('db:reopenWithRoot', accountRoot),
+  selectDbRoot: () => ipcRenderer.invoke('settings:selectDbRoot'),
+  openAccountRoot: () => ipcRenderer.invoke('settings:openAccountRoot'),
+  disconnectDb: () => ipcRenderer.invoke('db:disconnect'),
   apiStatus: () => ipcRenderer.invoke('api:getStatus'),
   apiStart: (host?: string, port?: number) => ipcRenderer.invoke('api:start', host, port),
   apiStop: () => ipcRenderer.invoke('api:stop'),

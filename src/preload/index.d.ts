@@ -201,6 +201,9 @@ declare global {
         error?: string
         info?: { wxid: string; nickname: string; avatar?: string; accountRoot: string }
       }>
+      selectDbRoot: () => Promise<{ canceled: boolean; path?: string }>
+      openAccountRoot: () => Promise<{ success: boolean; error?: string }>
+      disconnectDb: () => Promise<{ success: boolean; error?: string }>
       apiStatus: () => Promise<{
         running: boolean
         host: string

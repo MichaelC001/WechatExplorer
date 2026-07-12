@@ -1,3 +1,5 @@
+// Legacy fallback: SETTINGS-01 moved the default entry to features/settings.
+// Keep this panel intact until its database-key, image-key, AI and API sections are migrated.
 import React, { useEffect, useState } from 'react'
 
 interface SelfInfo {

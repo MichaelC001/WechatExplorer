@@ -1,5 +1,15 @@
 ﻿import './preload-env'
-import { app, shell, BrowserWindow, ipcMain, nativeImage, clipboard, Menu, Tray } from 'electron'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  nativeImage,
+  clipboard,
+  Menu,
+  Tray,
+  dialog
+} from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -476,6 +486,28 @@ app.whenReady().then(async () => {
     if (!ok) return { success: false, error: '数据库未初始化或重新打开失败' }
     const info = chat.getSelfAccountInfo()
     return { success: true, info }
+  })
+
+  ipcMain.handle('settings:selectDbRoot', async (event) => {
+    const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender)!, {
+      title: '选择微信数据库目录',
+      defaultPath: loadSettings().dbRoot || undefined,
+      properties: ['openDirectory']
+    })
+    return result.canceled ? { canceled: true } : { canceled: false, path: result.filePaths[0] }
+  })
+
+  ipcMain.handle('settings:openAccountRoot', async () => {
+    const accountRoot = chat.getCurrentAccountRoot()
+    if (!accountRoot) return { success: false, error: '当前没有可打开的账号目录' }
+    const error = await shell.openPath(accountRoot)
+    return error ? { success: false, error } : { success: true }
+  })
+
+  ipcMain.handle('db:disconnect', () => {
+    if (!chat.isReady()) return { success: false, error: '数据库当前未连接' }
+    chat.setChatDb(null)
+    return { success: true }
   })
 
   ipcMain.handle('api:getStatus', () => apiServer.getState())
