@@ -5,8 +5,13 @@ import { SettingsPanel } from './components/SettingsPanel'
 import { AppShell } from './components/layout/AppShell'
 import { AppPage } from './components/layout/navigation'
 import { AiReportWorkspace } from './components/reports/AiReportWorkspace'
+import { ReportHistorySidebar } from './components/reports/ReportHistorySidebar'
+import { ReportSettingsPanel } from './components/reports/ReportSettingsPanel'
 import { ReportSourceSidebar } from './components/reports/ReportSourceSidebar'
 import { ReportTaskStatusPanel } from './components/reports/ReportTaskStatusPanel'
+import { ReportViewer } from './components/reports/ReportViewer'
+import { contactDisplayName } from './components/reports/types'
+import type { GeneratedReportRecord, ReportWorkspaceView } from './components/reports/types'
 import {
   AiModelConfig,
   useGroupReportGeneration
@@ -167,6 +172,13 @@ function App(): React.ReactElement {
   const [showSettings, setShowSettings] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>('archive')
   const [reportSourceContact, setReportSourceContact] = useState<Contact | null>(null)
+  const [reportWorkspaceView, setReportWorkspaceView] = useState<ReportWorkspaceView>('result')
+  const [generatedReports, setGeneratedReports] = useState<GeneratedReportRecord[]>([])
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null)
+  const [selectedReportImageSize, setSelectedReportImageSize] = useState<{
+    width: number
+    height: number
+  } | null>(null)
   const [reportNotice, setReportNotice] = useState('')
   const [summaryDateRange, setSummaryDateRange] = useState<SummaryDateRange>('today')
   const [summaryMessageTypes, setSummaryMessageTypes] = useState<SummaryMessageType[]>(['text'])
@@ -192,6 +204,24 @@ function App(): React.ReactElement {
     summaryMessageTypes,
     modelConfig: aiModelConfig
   })
+  const lastCapturedReportKeyRef = React.useRef('')
+
+  const loadGeneratedReports = React.useCallback(async (): Promise<void> => {
+    try {
+      const result = await window.api.listGeneratedReports()
+      if (!result.success) {
+        setReportNotice(result.error || '日报历史加载失败')
+        window.setTimeout(() => setReportNotice(''), 3200)
+        return
+      }
+      const reports = result.reports || []
+      setGeneratedReports(reports)
+      setSelectedReportId((current) => current || reports[0]?.id || null)
+    } catch (error) {
+      setReportNotice(error instanceof Error ? error.message : String(error))
+      window.setTimeout(() => setReportNotice(''), 3200)
+    }
+  }, [])
 
   const waitForPaint = (): Promise<void> =>
     new Promise((resolve) => window.setTimeout(resolve, 80))
@@ -368,6 +398,11 @@ function App(): React.ReactElement {
       unsubscribe()
     }
   }, [])
+
+  React.useEffect(() => {
+    if (!isAuthenticated) return
+    void loadGeneratedReports()
+  }, [isAuthenticated, loadGeneratedReports])
 
   const handleLogin = async (keyInput?: string): Promise<void> => {
     const keyToUse = keyInput || dbKey
@@ -746,6 +781,10 @@ function App(): React.ReactElement {
     if (page === 'report' && isGroupContact(selectedContact) && !reportSourceContact) {
       setReportSourceContact(selectedContact)
     }
+    if (page === 'report') {
+      setReportWorkspaceView('result')
+      if (!selectedReportId && generatedReports[0]) setSelectedReportId(generatedReports[0].id)
+    }
   }
 
   const handleOpenReportWorkspace = (): void => {
@@ -761,6 +800,7 @@ function App(): React.ReactElement {
     }
     setReportNotice('')
     setReportSourceContact(selectedContact)
+    setReportWorkspaceView('configure')
     setActivePage('report')
   }
 
@@ -775,6 +815,99 @@ function App(): React.ReactElement {
     localStorage.setItem('ai_api_key', aiModelConfig.apiKey)
     localStorage.setItem('ai_base_url', aiModelConfig.baseURL)
     localStorage.setItem('ai_model', aiModelConfig.model)
+  }
+
+  React.useEffect(() => {
+    if (
+      reportGeneration.phase !== 'success' ||
+      !reportSourceContact ||
+      !reportGeneration.generatedImage ||
+      !reportGeneration.reportPaths
+    ) {
+      return
+    }
+
+    const recordKey = `${reportGeneration.reportPaths.pngPath}:${reportGeneration.reportPaths.htmlPath}`
+    if (lastCapturedReportKeyRef.current === recordKey) return
+    lastCapturedReportKeyRef.current = recordKey
+
+    const saveReport = async (): Promise<void> => {
+      const result = await window.api.saveGeneratedReport({
+        contactId: reportSourceContact.md5,
+        contactName: contactDisplayName(reportSourceContact),
+        contactAvatar: reportSourceContact.avatar || undefined,
+        dateRange:
+          summaryDateRange === 'yesterday'
+            ? '昨日'
+            : summaryDateRange === '7days'
+              ? '近 7 天'
+              : '今天',
+        messageCount: reportGeneration.reportMessages.length,
+        generatedAt: new Date().toISOString(),
+        generatedImage: reportGeneration.generatedImage || undefined,
+        htmlPath: reportGeneration.reportPaths?.htmlPath,
+        pngPath: reportGeneration.reportPaths?.pngPath
+      })
+
+      if (!result.success || !result.record) {
+        setReportNotice(result.error || '日报保存失败')
+        window.setTimeout(() => setReportNotice(''), 3200)
+        return
+      }
+
+      setGeneratedReports((current) => [
+        result.record as GeneratedReportRecord,
+        ...current.filter((report) => report.id !== result.record?.id)
+      ])
+      setSelectedReportId(result.record.id)
+      setSelectedReportImageSize(null)
+      setReportWorkspaceView('result')
+      setActivePage('report')
+    }
+
+    void saveReport()
+  }, [
+    reportGeneration.generatedImage,
+    reportGeneration.phase,
+    reportGeneration.reportMessages.length,
+    reportGeneration.reportPaths,
+    reportSourceContact,
+    summaryDateRange
+  ])
+
+  const selectedReport =
+    generatedReports.find((report) => report.id === selectedReportId) || generatedReports[0] || null
+
+  const openReportResult = (): void => {
+    if (generatedReports[0] && !selectedReportId) setSelectedReportId(generatedReports[0].id)
+    setReportWorkspaceView('result')
+  }
+
+  const openReportConfigure = (): void => {
+    setReportWorkspaceView('configure')
+  }
+
+  const handleRegenerateReport = (): void => {
+    if (selectedReport) {
+      const source = contacts.find((contact) => contact.md5 === selectedReport.contactId)
+      if (source) setReportSourceContact(source)
+    }
+    setReportWorkspaceView('configure')
+  }
+
+  const handleCopyReportImage = async (
+    report: GeneratedReportRecord
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!report.generatedImage) return { success: false, error: '没有可复制的日报图片' }
+    return window.api.copyImage(report.generatedImage)
+  }
+
+  const handleRevealReport = async (
+    report: GeneratedReportRecord
+  ): Promise<{ success: boolean; error?: string }> => {
+    const filePath = report.pngPath || report.htmlPath
+    if (!filePath) return { success: false, error: '当前报告缺少文件路径' }
+    return window.api.revealGroupReport(filePath)
   }
 
   const renderPlaceholderPage = (page: Exclude<AppPage, 'archive' | 'report'>): React.ReactElement => {
@@ -826,43 +959,75 @@ function App(): React.ReactElement {
   )
 
   const renderReportWorkspace = (): React.ReactElement => (
-    <div className="report-page">
-      <ReportSourceSidebar
-        contacts={contacts}
-        selectedContact={reportSourceContact}
-        selfInfo={selfInfo}
-        dbReady={isAuthenticated}
-        onSelectContact={handleSelectReportSource}
-        onOpenSettings={() => setShowSettings(true)}
-      />
-      <AiReportWorkspace
-        sourceContact={reportSourceContact}
-        summaryDateRange={summaryDateRange}
-        summaryMessageTypes={summaryMessageTypes}
-        modelConfig={aiModelConfig}
-        rangeMessageCount={reportGeneration.rangeMessages.length}
-        reportMessageCount={reportGeneration.reportMessages.length}
-        messageTypeCounts={reportGeneration.messageTypeCounts}
-        rangeState={reportGeneration.rangeState}
-        phase={reportGeneration.phase}
-        error={reportGeneration.error}
-        generatedImage={reportGeneration.generatedImage}
-        reportPaths={reportGeneration.reportPaths}
-        isGenerating={reportGeneration.isGenerating}
-        onSummaryDateRangeChange={setSummaryDateRange}
-        onSummaryMessageTypesChange={setSummaryMessageTypes}
-        onOpenModelSettings={() => setShowSettings(true)}
-        onGenerate={() => void reportGeneration.generate()}
-        onCloseResult={reportGeneration.closeResult}
-        onCopyImage={reportGeneration.copyImage}
-        onRevealReport={reportGeneration.revealReport}
-      />
-      <ReportTaskStatusPanel
-        phase={reportGeneration.phase}
-        error={reportGeneration.error}
-        onRetry={() => void reportGeneration.retry()}
-      />
-    </div>
+    reportWorkspaceView === 'result' ? (
+      <div className="report-center-page">
+        <ReportHistorySidebar
+          reports={generatedReports}
+          selectedReportId={selectedReport?.id || null}
+          selfInfo={selfInfo}
+          dbReady={isAuthenticated}
+          onSelectReport={(reportId) => {
+            setSelectedReportId(reportId)
+            setSelectedReportImageSize(null)
+          }}
+          onCreateReport={openReportConfigure}
+          onOpenSettings={() => setShowSettings(true)}
+        />
+        <ReportViewer
+          report={selectedReport}
+          onBackToConfigure={openReportConfigure}
+          onRegenerate={handleRegenerateReport}
+          onCopyImage={handleCopyReportImage}
+          onReveal={handleRevealReport}
+          onImageSizeChange={setSelectedReportImageSize}
+        />
+        <ReportSettingsPanel
+          report={selectedReport}
+          imageSize={selectedReportImageSize}
+          onReveal={handleRevealReport}
+        />
+      </div>
+    ) : (
+      <div className="report-page">
+        <ReportSourceSidebar
+          contacts={contacts}
+          selectedContact={reportSourceContact}
+          selfInfo={selfInfo}
+          dbReady={isAuthenticated}
+          onSelectContact={handleSelectReportSource}
+          onOpenSettings={() => setShowSettings(true)}
+        />
+        <AiReportWorkspace
+          sourceContact={reportSourceContact}
+          summaryDateRange={summaryDateRange}
+          summaryMessageTypes={summaryMessageTypes}
+          modelConfig={aiModelConfig}
+          rangeMessageCount={reportGeneration.rangeMessages.length}
+          reportMessageCount={reportGeneration.reportMessages.length}
+          messageTypeCounts={reportGeneration.messageTypeCounts}
+          rangeState={reportGeneration.rangeState}
+          phase={reportGeneration.phase}
+          error={reportGeneration.error}
+          generatedImage={reportGeneration.generatedImage}
+          reportPaths={reportGeneration.reportPaths}
+          isGenerating={reportGeneration.isGenerating}
+          onSummaryDateRangeChange={setSummaryDateRange}
+          onSummaryMessageTypesChange={setSummaryMessageTypes}
+          onOpenModelSettings={() => setShowSettings(true)}
+          onGenerate={() => void reportGeneration.generate()}
+          onCloseResult={reportGeneration.closeResult}
+          onCopyImage={reportGeneration.copyImage}
+          onRevealReport={reportGeneration.revealReport}
+          onViewResult={openReportResult}
+          hasReportResult={generatedReports.length > 0}
+        />
+        <ReportTaskStatusPanel
+          phase={reportGeneration.phase}
+          error={reportGeneration.error}
+          onRetry={() => void reportGeneration.retry()}
+        />
+      </div>
+    )
   )
 
   const renderCurrentWorkspace = (): React.ReactElement => {

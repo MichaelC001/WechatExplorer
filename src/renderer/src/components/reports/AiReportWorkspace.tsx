@@ -34,6 +34,8 @@ interface AiReportWorkspaceProps {
   onCloseResult: () => void
   onCopyImage: () => Promise<{ success: boolean; error?: string }>
   onRevealReport: () => Promise<{ success: boolean; error?: string }>
+  onViewResult: () => void
+  hasReportResult: boolean
 }
 
 const rangeLabel = (range: SummaryDateRange): string => {
@@ -72,7 +74,9 @@ export function AiReportWorkspace({
   onGenerate,
   onCloseResult,
   onCopyImage,
-  onRevealReport
+  onRevealReport,
+  onViewResult,
+  hasReportResult
 }: AiReportWorkspaceProps): React.ReactElement {
   const [actionStatus, setActionStatus] = useState('')
   const groupName = sourceContact?.m_nsNickName || sourceContact?.m_nsUsrName || '未选择群聊'
@@ -160,6 +164,9 @@ export function AiReportWorkspace({
               <img src={generatedImage} alt="生成的群聊日报" />
             </div>
             <div className="report-result-actions">
+              <button type="button" onClick={onViewResult}>
+                查看生成结果
+              </button>
               <button type="button" onClick={handleCopy}>
                 复制图片
               </button>
@@ -181,6 +188,11 @@ export function AiReportWorkspace({
         </span>
         <div className="report-footer-actions">
           {disabledReason && !isGenerating && <span>{disabledReason}</span>}
+          {hasReportResult && !isGenerating && (
+            <button type="button" className="secondary" onClick={onViewResult}>
+              查看结果
+            </button>
+          )}
           <button type="button" disabled={!canGenerate} onClick={onGenerate}>
             {isGenerating ? '正在生成日报' : '开始生成日报'}
           </button>

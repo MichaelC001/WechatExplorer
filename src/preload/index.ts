@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import { GroupReportExportRequest } from '../shared/group-report'
+import type { GroupReportExportRequest } from '../shared/group-report'
+import type { SaveGeneratedReportRequest } from '../shared/report-history'
 
 // 渲染器的自定义 API
 const api = {
@@ -36,6 +37,9 @@ const api = {
   getSticker: (cdnUrl?: string, md5?: string) => ipcRenderer.invoke('db:getSticker', cdnUrl, md5),
   exportGroupReport: (request: GroupReportExportRequest) =>
     ipcRenderer.invoke('report:export', request),
+  listGeneratedReports: () => ipcRenderer.invoke('report:listGenerated'),
+  saveGeneratedReport: (request: SaveGeneratedReportRequest) =>
+    ipcRenderer.invoke('report:saveGenerated', request),
   revealGroupReport: (filePath: string) => ipcRenderer.invoke('report:reveal', filePath),
   getSavedDbKey: () => ipcRenderer.invoke('key:getSavedDbKey'),
   autoGetDbKey: () => ipcRenderer.invoke('key:autoGetDbKey'),

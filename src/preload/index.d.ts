@@ -1,6 +1,11 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import { Contact, Message } from '../shared/types'
 import { GroupReportExportRequest, GroupReportExportResult } from '../shared/group-report'
+import {
+  ReportHistoryResult,
+  SaveGeneratedReportRequest,
+  SaveGeneratedReportResult
+} from '../shared/report-history'
 
 export type ParsedContent =
   | { type: 'text'; content: string }
@@ -84,6 +89,10 @@ declare global {
         md5?: string
       ) => Promise<{ success: boolean; data?: string; error?: string }>
       exportGroupReport: (request: GroupReportExportRequest) => Promise<GroupReportExportResult>
+      listGeneratedReports: () => Promise<ReportHistoryResult>
+      saveGeneratedReport: (
+        request: SaveGeneratedReportRequest
+      ) => Promise<SaveGeneratedReportResult>
       revealGroupReport: (filePath: string) => Promise<{ success: boolean; error?: string }>
       getSavedDbKey: () => Promise<{ success: boolean; key?: string; error?: string }>
       autoGetDbKey: () => Promise<{
