@@ -1,6 +1,6 @@
 ---
 name: wechatexplorer-reader
-description: 通过本地 HTTP API 读取 WechatExplorer 解锁后的微信聊天数据(本地服务由 WechatExplorer.app 提供)。当用户提到微信聊天记录、群消息、看看群里说了什么、查一下微信、分析微信对话、总结群聊等场景时,使用此技能。注意:此技能的数据源是用户本机 WechatExplorer app,而非 chatlog/WeFlow。
+description: 通过本地 HTTP API 读取 WechatExplorer 解锁后的微信聊天数据(本地服务由 WechatExplorer.app 提供)。当用户提到微信聊天记录、群消息、看看群里说了什么、查一下微信、分析微信对话、总结群聊等场景时,使用此技能。注意:此技能的数据源是用户本机 WechatExplorer app。
 ---
 
 # WechatExplorer Reader

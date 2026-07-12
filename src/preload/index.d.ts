@@ -1,6 +1,7 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import { Contact, Message } from '../shared/types'
 import { GroupReportExportRequest, GroupReportExportResult } from '../shared/group-report'
+import { LocalApiTestRequest, LocalApiTestResponse } from '../shared/local-api-test'
 import {
   DeleteGeneratedReportResult,
   ReportHistoryResult,
@@ -217,6 +218,20 @@ declare global {
         port: number
         error?: string
       }>
+      getReaderSkillStatus: () => Promise<{
+        available: boolean
+        version?: string
+        filePath?: string
+        directoryPath?: string
+        source: 'development' | 'bundled'
+        githubUrl: string
+        error?: string
+      }>
+      readReaderSkill: () => Promise<{ success: boolean; content?: string; error?: string }>
+      revealReaderSkill: () => Promise<{ success: boolean; error?: string }>
+      openReaderSkillGithub: () => Promise<{ success: boolean; error?: string }>
+      testLocalApiRequest: (request: LocalApiTestRequest) => Promise<LocalApiTestResponse>
+      copyText: (text: string) => Promise<{ success: boolean; error?: string }>
     }
   }
 }

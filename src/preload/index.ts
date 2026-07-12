@@ -40,7 +40,8 @@ const api = {
   listGeneratedReports: () => ipcRenderer.invoke('report:listGenerated'),
   saveGeneratedReport: (request: SaveGeneratedReportRequest) =>
     ipcRenderer.invoke('report:saveGenerated', request),
-  deleteGeneratedReport: (reportId: string) => ipcRenderer.invoke('report:deleteGenerated', reportId),
+  deleteGeneratedReport: (reportId: string) =>
+    ipcRenderer.invoke('report:deleteGenerated', reportId),
   revealGroupReport: (filePath: string) => ipcRenderer.invoke('report:reveal', filePath),
   getSavedDbKey: () => ipcRenderer.invoke('key:getSavedDbKey'),
   autoGetDbKey: () => ipcRenderer.invoke('key:autoGetDbKey'),
@@ -77,7 +78,13 @@ const api = {
   apiStatus: () => ipcRenderer.invoke('api:getStatus'),
   apiStart: (host?: string, port?: number) => ipcRenderer.invoke('api:start', host, port),
   apiStop: () => ipcRenderer.invoke('api:stop'),
-  apiToggle: (enabled: boolean) => ipcRenderer.invoke('api:toggle', enabled)
+  apiToggle: (enabled: boolean) => ipcRenderer.invoke('api:toggle', enabled),
+  getReaderSkillStatus: () => ipcRenderer.invoke('api:skillStatus'),
+  readReaderSkill: () => ipcRenderer.invoke('api:readSkill'),
+  revealReaderSkill: () => ipcRenderer.invoke('api:revealSkill'),
+  openReaderSkillGithub: () => ipcRenderer.invoke('api:openSkillGithub'),
+  testLocalApiRequest: (request) => ipcRenderer.invoke('api:testLocalRequest', request),
+  copyText: (text: string) => ipcRenderer.invoke('api:copyText', text)
 }
 
 if (process.contextIsolated) {

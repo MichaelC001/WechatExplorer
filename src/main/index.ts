@@ -22,6 +22,8 @@ import { KeyServiceMac } from './key-service-mac'
 import { KeyService as KeyServiceWin } from './key-service-win'
 import * as chat from './services/chat-service'
 import { apiServer } from './http-server'
+import { skillResourceService } from './services/skill-resource-service'
+import { testLocalApiRequest } from './services/local-api-test-service'
 import { loadSettings, saveSettings, getSettingsPath, AppSettings } from './services/settings-store'
 import {
   getBootstrapCache,
@@ -496,6 +498,23 @@ app.whenReady().then(async () => {
       return apiServer.start(settings.apiHost, settings.apiPort)
     }
     return apiServer.stop()
+  })
+
+  ipcMain.handle('api:skillStatus', () => skillResourceService.getStatus())
+  ipcMain.handle('api:readSkill', () => skillResourceService.read())
+  ipcMain.handle('api:revealSkill', () => skillResourceService.reveal())
+  ipcMain.handle('api:openSkillGithub', () => skillResourceService.openGithub())
+  ipcMain.handle('api:testLocalRequest', (_, request) => testLocalApiRequest(request))
+  ipcMain.handle('api:copyText', (_, text: unknown) => {
+    if (typeof text !== 'string' || text.length > 1024 * 1024) {
+      return { success: false, error: '复制内容无效或过大' }
+    }
+    try {
+      clipboard.writeText(text)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
   })
 
   createWindow()

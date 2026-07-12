@@ -11,6 +11,10 @@
     "AI群聊总结助手"
   ],
   "author": "Qingmao",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Wxw-Gu/WechatExplorer.git"
+  },
   "main": "./out/main/index.js",
   "scripts": {
     "format": "prettier --write .",
@@ -18,6 +22,7 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "test:skill-install": "node scripts/test-skill-install-instruction.cjs",
     "cp:env": "node scripts/ensure-env.cjs",
     "prepare:env": "node scripts/ensure-env.cjs",
     "predev": "node scripts/ensure-env.cjs",

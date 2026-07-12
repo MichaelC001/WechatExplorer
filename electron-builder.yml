@@ -20,6 +20,10 @@ extraResources:
     to: resources
     filter:
       - '**/*'
+  - from: docs/skill/wechatexplorer-reader
+    to: skill/wechatexplorer-reader
+    filter:
+      - '**/*'
 win:
   # WCDB's Windows runtime checks the host executable name. The dev runtime is
   # electron.exe, so keep the packaged executable compatible while preserving
@@ -58,4 +62,6 @@ appImage:
 npmRebuild: false
 publish:
   provider: github
+  owner: Wxw-Gu
+  repo: WechatExplorer
   releaseType: draft

@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar'
 import ChatWindow from './components/ChatWindow'
 import { SettingsPanel } from './components/SettingsPanel'
 import { AppShell } from './components/layout/AppShell'
+import { ApiWorkspace } from './features/api-center/ApiWorkspace'
 import { AppPage } from './components/layout/navigation'
 import { AiReportWorkspace } from './components/reports/AiReportWorkspace'
 import { ReportHistorySidebar } from './components/reports/ReportHistorySidebar'
@@ -1085,9 +1086,19 @@ function App(): React.ReactElement {
         return renderArchiveWorkspace()
       case 'report':
         return renderReportWorkspace()
+      case 'api':
+        return (
+          <ApiWorkspace
+            selectedContact={selectedContact}
+            dbReady={isAuthenticated}
+            onOpenSettings={() => {
+              setActivePage('settings')
+              setShowSettings(true)
+            }}
+          />
+        )
       case 'search':
       case 'export':
-      case 'api':
       case 'settings':
         return renderPlaceholderPage(activePage)
     }
