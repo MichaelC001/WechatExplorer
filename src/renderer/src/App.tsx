@@ -5,6 +5,7 @@ import { AppShell } from './components/layout/AppShell'
 import { ApiWorkspace } from './features/api-center/ApiWorkspace'
 import { SettingsWorkspace } from './features/settings/SettingsWorkspace'
 import type { SettingsCategoryId } from './features/settings/model/types'
+import type { AIRuntimeModelConfig } from '../../shared/ai-provider'
 import { AppPage } from './components/layout/navigation'
 import { AiReportWorkspace } from './components/reports/AiReportWorkspace'
 import { ReportHistorySidebar } from './components/reports/ReportHistorySidebar'
@@ -175,11 +176,13 @@ function App(): React.ReactElement {
   const [reportNotice, setReportNotice] = useState('')
   const [summaryDateRange, setSummaryDateRange] = useState<SummaryDateRange>('today')
   const [summaryMessageTypes, setSummaryMessageTypes] = useState<SummaryMessageType[]>(['text'])
-  const [aiModelConfig] = useState<AiModelConfig>(() => ({
-    apiKey: localStorage.getItem('ai_api_key') || '',
-    baseURL: localStorage.getItem('ai_base_url') || 'https://api.deepseek.com',
-    model: localStorage.getItem('ai_model') || 'deepseek-chat'
-  }))
+  const [aiModelConfig, setAiModelConfig] = useState<AiModelConfig>({
+    providerName: '尚未配置',
+    model: '',
+    modelName: '尚未选择模型',
+    configured: false,
+    status: 'untested'
+  })
   const [selfInfo, setSelfInfo] = useState<SelfInfo | null>(null)
   const [isNativeMonitorActive, setIsNativeMonitorActive] = useState(false)
   const [bootState, setBootState] = useState<'loading' | 'connecting' | 'login'>('loading')
@@ -193,6 +196,29 @@ function App(): React.ReactElement {
     const timer = window.setTimeout(() => setReportNotice(''), 3200)
     return () => window.clearTimeout(timer)
   }, [reportNotice])
+  React.useEffect(() => {
+    const loadAIConfig = async (): Promise<void> => {
+      try {
+        const legacy = {
+          apiKey: localStorage.getItem('ai_api_key') || undefined,
+          baseUrl: localStorage.getItem('ai_base_url') || undefined,
+          model: localStorage.getItem('ai_model') || undefined
+        }
+        if (legacy.apiKey || legacy.baseUrl || legacy.model) {
+          const migrated = await window.api.migrateLegacyAIConfig(legacy)
+          if (migrated.success) {
+            localStorage.removeItem('ai_api_key')
+            localStorage.removeItem('ai_base_url')
+            localStorage.removeItem('ai_model')
+          }
+        }
+        setAiModelConfig(await window.api.getAIRuntimeConfig())
+      } catch (error) {
+        console.warn('[AI Provider] 配置加载失败:', error)
+      }
+    }
+    void loadAIConfig()
+  }, [])
   const selectedContactMd5Ref = React.useRef<string>('')
   const contactAvatarHydrationRunRef = React.useRef(0)
   const reportGeneration = useGroupReportGeneration({
@@ -812,6 +838,11 @@ function App(): React.ReactElement {
     setActivePage('settings')
   }
 
+  const openModelSettings = (): void => {
+    setSettingsCategory('ai-model')
+    setActivePage('settings')
+  }
+
   const openReport = (reportId: string): void => {
     setSelectedReportId(reportId)
     setReportWorkspaceView('result')
@@ -1060,7 +1091,7 @@ function App(): React.ReactElement {
           isGenerating={reportGeneration.isGenerating}
           onSummaryDateRangeChange={setSummaryDateRange}
           onSummaryMessageTypesChange={setSummaryMessageTypes}
-          onOpenModelSettings={openSettings}
+          onOpenModelSettings={openModelSettings}
           onGenerate={() => {
             reportGeneration.resetGenerationStatus()
             void reportGeneration.generate()
@@ -1109,6 +1140,7 @@ function App(): React.ReactElement {
             onSelfInfoChange={setSelfInfo}
             onContactsChange={setContacts}
             onFilteredContactsChange={setFilteredContacts}
+            onAIRuntimeChange={(config: AIRuntimeModelConfig) => setAiModelConfig(config)}
             onNotice={setReportNotice}
             onOpenSettings={openSettings}
           />

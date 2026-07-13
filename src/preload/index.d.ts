@@ -20,6 +20,14 @@ import type {
   SaveImageKeyRequest,
   TestImageDecryptionRequest
 } from '../shared/image-decryption'
+import type {
+  AIChatRequestOptions,
+  AIConnectionTestResult,
+  AIProviderConfig,
+  AIProviderListResult,
+  AIRuntimeModelConfig,
+  LegacyAIConfig
+} from '../shared/ai-provider'
 
 export type ParsedContent =
   | { type: 'text'; content: string }
@@ -82,7 +90,7 @@ declare global {
       search: (keyword: string) => Promise<string | null>
       aiChat: (
         messages: { role: string; content: string }[],
-        options?: { apiKey?: string; model?: string; baseURL?: string }
+        options?: AIChatRequestOptions
       ) => Promise<{
         success: boolean
         data?: string
@@ -94,6 +102,13 @@ declare global {
         }
         error?: string
       }>
+      listAIProviders: () => Promise<AIProviderListResult>
+      getAIRuntimeConfig: () => Promise<AIRuntimeModelConfig>
+      saveAIProvider: (provider: AIProviderConfig) => Promise<AIProviderListResult>
+      deleteAIProvider: (providerId: string) => Promise<AIProviderListResult>
+      setDefaultAIProvider: (providerId: string) => Promise<AIProviderListResult>
+      testAIProvider: (providerId: string) => Promise<AIConnectionTestResult>
+      migrateLegacyAIConfig: (config: LegacyAIConfig) => Promise<AIProviderListResult>
       copyImage: (base64String: string) => Promise<{ success: boolean; error?: string }>
       getVoiceData: (
         sessionId: string,

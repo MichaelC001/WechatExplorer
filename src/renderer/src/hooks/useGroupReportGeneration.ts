@@ -23,9 +23,12 @@ export type ReportGenerationPhase =
   | 'error'
 
 export interface AiModelConfig {
-  apiKey: string
-  baseURL: string
+  providerId?: string
+  providerName: string
   model: string
+  modelName: string
+  configured: boolean
+  status: 'untested' | 'connected' | 'error'
 }
 
 export interface ReportPaths {
@@ -277,9 +280,9 @@ export function useGroupReportGeneration({
       setError('AI 群聊日报仅支持群聊')
       return
     }
-    if (!modelConfig.apiKey.trim()) {
+    if (!modelConfig.configured) {
       setPhase('error')
-      setError('尚未配置 API Key')
+      setError('尚未配置可用的默认 AI 模型')
       return
     }
     if (!summaryMessageTypes.length) {
@@ -339,7 +342,13 @@ export function useGroupReportGeneration({
         { role: 'user', content: input.prompt }
       ]
       const result = await trackStep('AI 生成', () =>
-        withTimeout(window.api.aiChat(aiMessages, modelConfig), 'AI 生成日报')
+        withTimeout(
+          window.api.aiChat(aiMessages, {
+            providerId: modelConfig.providerId,
+            modelId: modelConfig.model
+          }),
+          'AI 生成日报'
+        )
       )
       if (!result.success || !result.data) throw new Error(result.error || 'AI 请求失败')
 

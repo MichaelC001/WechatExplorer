@@ -27,8 +27,10 @@ import {
 } from './report-history-service'
 import type { GroupReportExportRequest } from '../shared/group-report'
 import type { SaveGeneratedReportRequest } from '../shared/report-history'
+import type { AIChatRequestOptions, AIProviderConfig, LegacyAIConfig } from '../shared/ai-provider'
 import { DatabaseKeyStore } from './database-key-store'
 import { ImageKeyConfigService } from './services/image-key-config-service'
+import { AIProviderService } from './services/ai-provider-service'
 import { KeyServiceMac } from './key-service-mac'
 import { KeyService as KeyServiceWin } from './key-service-win'
 import * as chat from './services/chat-service'
@@ -63,6 +65,7 @@ let imageDecryptService: ImageDecryptService | null = null
 let stickerService: StickerService | null = null
 const databaseKeyStore = new DatabaseKeyStore()
 const imageKeyConfigService = new ImageKeyConfigService()
+const aiProviderService = new AIProviderService()
 const keyServiceMac = new KeyServiceMac()
 const keyServiceWin = new KeyServiceWin()
 let tray: Tray | null = null
@@ -353,52 +356,24 @@ app.whenReady().then(async () => {
 
   ipcMain.handle(
     'ai:chat',
-    async (
-      _,
-      messages: { role: string; content: string }[],
-      options?: { apiKey?: string; model?: string; baseURL?: string }
-    ) => {
-      // @ts-ignore: vite env
-      const apiKey = options?.apiKey || import.meta.env.VITE_DEEPSEEK_API_KEY
-      const model = options?.model || import.meta.env.VITE_AI_MODEL || 'deepseek-chat'
-      const baseURL =
-        options?.baseURL || import.meta.env.VITE_AI_BASE_URL || 'https://api.deepseek.com'
+    async (_, messages: { role: string; content: string }[], options?: AIChatRequestOptions) =>
+      aiProviderService.chat(messages, options)
+  )
 
-      if (!apiKey) {
-        return { success: false, error: '未配置 API Key' }
-      }
-
-      // 鍔ㄦ€佸鍏ヤ互閬垮厤濡傛灉鏈畨瑁呮垨鍒濆绫诲瀷缂哄け鐨勯棶棰?
-      const { OpenAI } = await import('openai')
-
-      const openai = new OpenAI({
-        baseURL,
-        apiKey
-      })
-      try {
-        const completion = await openai.chat.completions.create({
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          messages: messages as any,
-          model: model
-        })
-        return {
-          success: true,
-          data: completion.choices[0].message.content,
-          usage: completion.usage
-            ? {
-                input: completion.usage.prompt_tokens,
-                output: completion.usage.completion_tokens,
-                total: completion.usage.total_tokens,
-                estimated: false
-              }
-            : undefined
-        }
-      } catch (error: unknown) {
-        console.error('AI API Error:', error)
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-        return { success: false, error: errorMessage }
-      }
-    }
+  ipcMain.handle('ai:listProviders', () => aiProviderService.list())
+  ipcMain.handle('ai:getRuntimeConfig', () => aiProviderService.getRuntimeConfig())
+  ipcMain.handle('ai:saveProvider', (_, provider: AIProviderConfig) =>
+    aiProviderService.save(provider)
+  )
+  ipcMain.handle('ai:deleteProvider', (_, providerId: string) =>
+    aiProviderService.delete(providerId)
+  )
+  ipcMain.handle('ai:setDefaultProvider', (_, providerId: string) =>
+    aiProviderService.setDefault(providerId)
+  )
+  ipcMain.handle('ai:testProvider', (_, providerId: string) => aiProviderService.test(providerId))
+  ipcMain.handle('ai:migrateLegacy', (_, config: LegacyAIConfig) =>
+    aiProviderService.migrateLegacy(config)
   )
 
   ipcMain.handle('copy-image', async (_, base64String) => {

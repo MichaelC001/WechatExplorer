@@ -83,20 +83,21 @@ export function AiReportWorkspace({
   const configDisabled = isGenerating
   const disabledReason = useMemo(() => {
     if (!sourceContact) return '请先选择群聊'
-    if (!modelConfig.apiKey.trim()) return '请先配置 API Key'
+    if (!modelConfig.configured) return '请先配置默认 AI 模型'
     if (rangeState.status === 'loading') return '正在计算消息数量'
     if (rangeState.status === 'error') return rangeState.error
     if (!reportMessageCount) return '当前范围没有可总结消息'
     if (!summaryMessageTypes.length) return '请至少选择一种消息类型'
     return ''
-  }, [modelConfig.apiKey, rangeState, reportMessageCount, sourceContact, summaryMessageTypes.length])
+  }, [
+    modelConfig.configured,
+    rangeState,
+    reportMessageCount,
+    sourceContact,
+    summaryMessageTypes.length
+  ])
   const canGenerate = !isGenerating && !disabledReason
-  const modelStatus =
-    modelConfig.apiKey.trim() && modelConfig.baseURL.trim()
-      ? '配置正常'
-      : modelConfig.apiKey.trim() || modelConfig.baseURL.trim()
-        ? '配置不完整'
-        : '尚未配置'
+  const modelStatus = modelConfig.configured ? '配置正常' : '尚未配置'
 
   const handleCopy = async (): Promise<void> => {
     const result = await onCopyImage()
@@ -143,10 +144,7 @@ export function AiReportWorkspace({
         />
         <ReportSectionSelector />
         <ReportDensitySelector />
-        <ModelSummary
-          config={modelConfig}
-          onOpenSettings={onOpenModelSettings}
-        />
+        <ModelSummary config={modelConfig} onOpenSettings={onOpenModelSettings} />
         <section className="report-privacy-note">
           <h3>隐私说明</h3>
           <p>微信数据库和聊天记录默认从本机读取。</p>
@@ -184,7 +182,8 @@ export function AiReportWorkspace({
 
       <footer className="ai-report-footer">
         <span className="report-footer-note">
-          {modelLabel(modelConfig.model)} · {modelStatus} · 所选内容会发送至你配置的模型服务
+          {modelConfig.modelName || modelLabel(modelConfig.model)} · {modelStatus} ·
+          所选内容会发送至你配置的模型服务
         </span>
         <div className="report-footer-actions">
           {disabledReason && !isGenerating && <span>{disabledReason}</span>}

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { GroupReportExportRequest } from '../shared/group-report'
 import type { SaveGeneratedReportRequest } from '../shared/report-history'
+import type { AIChatRequestOptions, AIProviderConfig, LegacyAIConfig } from '../shared/ai-provider'
 
 // 渲染器的自定义 API
 const api = {
@@ -19,10 +20,16 @@ const api = {
   ) => ipcRenderer.invoke('db:getMessages', userMd5, startTime, endTime, options),
   getGroupSnapshot: (userMd5: string) => ipcRenderer.invoke('db:getGroupSnapshot', userMd5),
   search: (keyword: string) => ipcRenderer.invoke('db:search', keyword),
-  aiChat: (
-    messages: { role: string; content: string }[],
-    options?: { apiKey?: string; model?: string; baseURL?: string }
-  ) => ipcRenderer.invoke('ai:chat', messages, options),
+  aiChat: (messages: { role: string; content: string }[], options?: AIChatRequestOptions) =>
+    ipcRenderer.invoke('ai:chat', messages, options),
+  listAIProviders: () => ipcRenderer.invoke('ai:listProviders'),
+  getAIRuntimeConfig: () => ipcRenderer.invoke('ai:getRuntimeConfig'),
+  saveAIProvider: (provider: AIProviderConfig) => ipcRenderer.invoke('ai:saveProvider', provider),
+  deleteAIProvider: (providerId: string) => ipcRenderer.invoke('ai:deleteProvider', providerId),
+  setDefaultAIProvider: (providerId: string) =>
+    ipcRenderer.invoke('ai:setDefaultProvider', providerId),
+  testAIProvider: (providerId: string) => ipcRenderer.invoke('ai:testProvider', providerId),
+  migrateLegacyAIConfig: (config: LegacyAIConfig) => ipcRenderer.invoke('ai:migrateLegacy', config),
   copyImage: (base64String) => ipcRenderer.invoke('copy-image', base64String),
   getVoiceData: (sessionId: string, localId: number, createTime: number, svrId?: string | number) =>
     ipcRenderer.invoke('db:getVoiceData', sessionId, localId, createTime, svrId),

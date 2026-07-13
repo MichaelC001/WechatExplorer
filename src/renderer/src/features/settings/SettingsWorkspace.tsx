@@ -5,7 +5,9 @@ import type { SettingsCategoryId, SettingsSelfInfo } from './model/types'
 import { AccountDatabasePage } from './pages/AccountDatabasePage'
 import { DatabaseKeyPage } from './pages/DatabaseKeyPage'
 import { ImageDecryptionPage } from './pages/ImageDecryptionPage'
+import { AIModelPage } from './pages/AIModelPage'
 import type { Contact } from '../../../../shared/types'
+import type { AIRuntimeModelConfig } from '../../../../shared/ai-provider'
 
 export function SettingsWorkspace({
   selectedCategory,
@@ -18,6 +20,7 @@ export function SettingsWorkspace({
   onSelfInfoChange,
   onContactsChange,
   onFilteredContactsChange,
+  onAIRuntimeChange,
   onNotice,
   onOpenSettings
 }: {
@@ -31,6 +34,7 @@ export function SettingsWorkspace({
   onSelfInfoChange: (info: SettingsSelfInfo | null) => void
   onContactsChange: (contacts: Contact[]) => void
   onFilteredContactsChange: (contacts: Contact[]) => void
+  onAIRuntimeChange: (config: AIRuntimeModelConfig) => void
   onNotice: (message: string) => void
   onOpenSettings: () => void
 }): React.ReactElement {
@@ -64,6 +68,8 @@ export function SettingsWorkspace({
         />
       ) : selectedCategory === 'image-key' ? (
         <ImageDecryptionPage selfInfo={selfInfo} onNotice={onNotice} />
+      ) : selectedCategory === 'ai-model' ? (
+        <AIModelPage onRuntimeChange={onAIRuntimeChange} onNotice={onNotice} />
       ) : (
         <SettingsEmptyState label={SETTINGS_CATEGORY_LABELS[selectedCategory]} />
       )}
