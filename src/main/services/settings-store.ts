@@ -11,6 +11,7 @@ export interface AppSettings {
   imageKeyRoot: string
   imageXorKey: string
   imageAesKey: string
+  imageKeyFallbackDisabled: boolean
 }
 
 function getDefaultDbRoot(): string {
@@ -21,7 +22,9 @@ function getDefaultDbRoot(): string {
 
 function getDefaultDbRootCandidates(home: string): string[] {
   if (process.platform !== 'win32') {
-    return [path.join(home, 'Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files')]
+    return [
+      path.join(home, 'Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files')
+    ]
   }
 
   const candidates = [
@@ -113,8 +116,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   apiHost: '127.0.0.1',
   apiPort: 6131,
   imageKeyRoot: defaultDbRoot,
-  imageXorKey: process.env.VITE_IMAGE_XOR_KEY || '',
-  imageAesKey: process.env.VITE_IMAGE_AES_KEY || ''
+  imageXorKey: '',
+  imageAesKey: '',
+  imageKeyFallbackDisabled: false
 }
 
 const SETTINGS_FILE = path.join(

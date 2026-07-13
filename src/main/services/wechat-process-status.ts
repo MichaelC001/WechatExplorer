@@ -21,3 +21,21 @@ export async function isWindowsWechatRunning(): Promise<boolean> {
   }
   return false
 }
+
+export async function isWechatRunning(): Promise<boolean> {
+  if (process.platform === 'win32') return isWindowsWechatRunning()
+  if (process.platform !== 'darwin') return false
+
+  for (const args of [
+    ['-x', 'WeChat'],
+    ['-f', 'WeChat.app/Contents/MacOS/WeChat']
+  ]) {
+    try {
+      const { stdout } = await execFileAsync('/usr/bin/pgrep', args)
+      if (stdout.trim()) return true
+    } catch {
+      // Try the next macOS process lookup strategy.
+    }
+  }
+  return false
+}

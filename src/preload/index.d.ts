@@ -13,6 +13,13 @@ import type {
   DatabaseKeyStorageResult,
   DatabaseKeyValidationResult
 } from '../shared/database-key'
+import type {
+  ImageDecryptionStatus,
+  ImageDecryptionTestResult,
+  ImageKeyConfigResult,
+  SaveImageKeyRequest,
+  TestImageDecryptionRequest
+} from '../shared/image-decryption'
 
 export type ParsedContent =
   | { type: 'text'; content: string }
@@ -133,7 +140,7 @@ declare global {
         saved?: boolean
         warning?: string
       }>
-      autoGetImageKey: () => Promise<{
+      autoGetImageKey: (options?: { save?: boolean }) => Promise<{
         success: boolean
         xorKey?: number
         aesKey?: string
@@ -151,6 +158,13 @@ declare global {
           imageAesKey: string
         }
       }>
+      getImageKeyConfig: () => Promise<ImageKeyConfigResult>
+      getImageDecryptionStatus: () => Promise<ImageDecryptionStatus>
+      saveImageKeyConfig: (request: SaveImageKeyRequest) => Promise<ImageKeyConfigResult>
+      testImageDecryption: (
+        request: TestImageDecryptionRequest
+      ) => Promise<ImageDecryptionTestResult>
+      clearImageKeyConfig: () => Promise<{ success: boolean; error?: string }>
       pasteAndSaveDbKey: () => Promise<{ success: boolean; key?: string; error?: string }>
       saveDbKey: (key: string) => Promise<DatabaseKeyStorageResult>
       clearSavedDbKey: () => Promise<{ success: boolean; error?: string }>

@@ -9,10 +9,6 @@ import {
 } from './diagnostics'
 import type { ConnectionCheckState } from './types'
 
-interface AppSettings {
-  imageAesKey: string
-}
-
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export function useAccountDatabaseController({
   dbKey,
@@ -25,19 +21,19 @@ export function useAccountDatabaseController({
   selfInfo: SettingsSelfInfo | null
   onNotice: (message: string) => void
 }) {
-  const [settings, setSettings] = useState<AppSettings | null>(null)
+  const [hasImageKey, setHasImageKey] = useState(false)
   const [checkState, setCheckState] = useState<ConnectionCheckState>({ status: 'idle' })
   const [clock, setClock] = useState(() => new Date())
 
   useEffect(() => {
     let active = true
     void window.api
-      .getSettings()
+      .getImageDecryptionStatus()
       .then((result) => {
-        if (active) setSettings(result.settings)
+        if (active) setHasImageKey(result.configured)
       })
       .catch(() => {
-        if (active) setSettings(null)
+        if (active) setHasImageKey(false)
       })
     return () => {
       active = false
@@ -50,7 +46,6 @@ export function useAccountDatabaseController({
     return () => window.clearInterval(timer)
   }, [checkState.checkedAt])
 
-  const hasImageKey = Boolean(settings?.imageAesKey.trim())
   const diagnostics = useMemo(
     () =>
       buildConnectionDiagnostics({

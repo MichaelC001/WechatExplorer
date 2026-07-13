@@ -4,6 +4,7 @@ import { SETTINGS_CATEGORY_LABELS } from './model/settingsNavigation'
 import type { SettingsCategoryId, SettingsSelfInfo } from './model/types'
 import { AccountDatabasePage } from './pages/AccountDatabasePage'
 import { DatabaseKeyPage } from './pages/DatabaseKeyPage'
+import { ImageDecryptionPage } from './pages/ImageDecryptionPage'
 import type { Contact } from '../../../../shared/types'
 
 export function SettingsWorkspace({
@@ -61,6 +62,8 @@ export function SettingsWorkspace({
           onFilteredContactsChange={onFilteredContactsChange}
           onNotice={onNotice}
         />
+      ) : selectedCategory === 'image-key' ? (
+        <ImageDecryptionPage selfInfo={selfInfo} onNotice={onNotice} />
       ) : (
         <SettingsEmptyState label={SETTINGS_CATEGORY_LABELS[selectedCategory]} />
       )}

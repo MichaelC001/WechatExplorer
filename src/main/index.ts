@@ -28,6 +28,7 @@ import {
 import type { GroupReportExportRequest } from '../shared/group-report'
 import type { SaveGeneratedReportRequest } from '../shared/report-history'
 import { DatabaseKeyStore } from './database-key-store'
+import { ImageKeyConfigService } from './services/image-key-config-service'
 import { KeyServiceMac } from './key-service-mac'
 import { KeyService as KeyServiceWin } from './key-service-win'
 import * as chat from './services/chat-service'
@@ -35,6 +36,11 @@ import { apiServer } from './http-server'
 import { skillResourceService } from './services/skill-resource-service'
 import { testLocalApiRequest } from './services/local-api-test-service'
 import { isWindowsWechatRunning } from './services/wechat-process-status'
+import {
+  inspectImageDecryptionStatus,
+  testImageDecryption
+} from './services/image-decryption-status-service'
+import type { SaveImageKeyRequest, TestImageDecryptionRequest } from '../shared/image-decryption'
 import { loadSettings, saveSettings, getSettingsPath, AppSettings } from './services/settings-store'
 import {
   getBootstrapCache,
@@ -56,6 +62,7 @@ let voiceService: VoiceService | null = null
 let imageDecryptService: ImageDecryptService | null = null
 let stickerService: StickerService | null = null
 const databaseKeyStore = new DatabaseKeyStore()
+const imageKeyConfigService = new ImageKeyConfigService()
 const keyServiceMac = new KeyServiceMac()
 const keyServiceWin = new KeyServiceWin()
 let tray: Tray | null = null
@@ -69,24 +76,11 @@ const BUILD_MARK = 'wechat4-local-http-api-2026-07-03'
 const TRAY_MODE =
   process.argv.includes('--tray') || (process.env['WXE_TRAY'] || '').toString() === '1'
 
-function normalizeImageXorKey(value: unknown): string {
-  const raw = String(value ?? '').trim()
-  if (!raw) return ''
-  const parsed = raw.toLowerCase().startsWith('0x')
-    ? Number.parseInt(raw.slice(2), 16)
-    : Number.parseInt(raw, 10)
-  if (!Number.isFinite(parsed)) return raw
-  return `0x${Math.max(0, parsed & 0xff)
-    .toString(16)
-    .toUpperCase()
-    .padStart(2, '0')}`
-}
-
 function getConfiguredImageKeys(): { xorKey: string; aesKey: string } {
-  const settings = loadSettings()
+  const config = imageKeyConfigService.getConfig()
   return {
-    xorKey: settings.imageXorKey || import.meta.env.VITE_IMAGE_XOR_KEY || '0x40',
-    aesKey: settings.imageAesKey || import.meta.env.VITE_IMAGE_AES_KEY || ''
+    xorKey: config.xorKey || '0x40',
+    aesKey: config.aesKey || ''
   }
 }
 
@@ -247,7 +241,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  ipcMain.handle('key:autoGetImageKey', async (event) => {
+  ipcMain.handle('key:autoGetImageKey', async (event, options?: { save?: boolean }) => {
     const settings = loadSettings()
     const self = chat.getSelfAccountInfo()
     const accountRoot = settings.imageKeyRoot || self?.accountRoot || settings.dbRoot
@@ -261,20 +255,55 @@ app.whenReady().then(async () => {
         : await keyServiceMac.autoGetImageKey(accountRoot, onStatus, wxid)
 
     if (!result.success || !result.aesKey) return result
+    if (process.platform === 'win32') {
+      onStatus('发现候选密钥，图片模板验证通过')
+    }
 
-    const imageXorKey = normalizeImageXorKey(result.xorKey)
-    const nextSettings = saveSettings({
-      ...settings,
-      imageXorKey,
-      imageAesKey: result.aesKey
+    const imageXorKey = `0x${Number(result.xorKey ?? 0x40)
+      .toString(16)
+      .toUpperCase()
+      .padStart(2, '0')}`
+    const verified = result.verified ?? process.platform === 'win32'
+    if (options?.save === false) {
+      return { ...result, verified, imageXorKey, imageAesKey: result.aesKey }
+    }
+    const saved = imageKeyConfigService.save({
+      resourceRoot: accountRoot,
+      xorKey: imageXorKey,
+      aesKey: result.aesKey
     })
-    imageDecryptService = null
+    if (saved.success) imageDecryptService = null
     return {
       ...result,
+      success: saved.success,
+      error: saved.success ? undefined : saved.error,
+      verified,
       imageXorKey,
       imageAesKey: result.aesKey,
-      settings: nextSettings
+      settings: imageKeyConfigService.getLegacySettingsView()
     }
+  })
+
+  ipcMain.handle('image:getConfig', () => imageKeyConfigService.getConfig())
+
+  ipcMain.handle('image:getStatus', async () =>
+    inspectImageDecryptionStatus(imageKeyConfigService.getConfig())
+  )
+
+  ipcMain.handle('image:saveConfig', (_, request: SaveImageKeyRequest) => {
+    const result = imageKeyConfigService.save(request)
+    if (result.success) imageDecryptService = null
+    return result
+  })
+
+  ipcMain.handle('image:testConfig', (_, request: TestImageDecryptionRequest) =>
+    testImageDecryption(request)
+  )
+
+  ipcMain.handle('image:clearConfig', () => {
+    const result = imageKeyConfigService.clear()
+    if (result.success) imageDecryptService = null
+    return result
   })
 
   ipcMain.handle('db:getBootstrapCache', () => {
@@ -481,17 +510,29 @@ app.whenReady().then(async () => {
   // -------- Settings & API service --------
 
   ipcMain.handle('settings:get', () => ({
-    settings: loadSettings(),
+    settings: imageKeyConfigService.getLegacySettingsView(),
     settingsPath: getSettingsPath()
   }))
 
   ipcMain.handle('settings:set', (_, patch: Partial<AppSettings>) => {
     const before = loadSettings()
-    const merged = saveSettings({ ...before, ...patch })
-    if (before.imageXorKey !== merged.imageXorKey || before.imageAesKey !== merged.imageAesKey) {
+    const current = imageKeyConfigService.getConfig()
+    const resourceRoot = patch.imageKeyRoot ?? before.imageKeyRoot
+    const xorKey = patch.imageXorKey ?? current.xorKey ?? '0x40'
+    const aesKey = patch.imageAesKey ?? current.aesKey ?? ''
+    const includesImageKey = 'imageXorKey' in patch || 'imageAesKey' in patch
+    if (includesImageKey) {
+      saveSettings({ ...before, ...patch, imageXorKey: '', imageAesKey: '' })
+      if (aesKey) imageKeyConfigService.save({ resourceRoot, xorKey, aesKey })
+      else imageKeyConfigService.clear()
       imageDecryptService = null
+    } else {
+      saveSettings({ ...before, ...patch, imageXorKey: '', imageAesKey: '' })
     }
-    return { settings: merged, settingsPath: getSettingsPath() }
+    return {
+      settings: imageKeyConfigService.getLegacySettingsView(),
+      settingsPath: getSettingsPath()
+    }
   })
 
   ipcMain.handle('settings:getSelf', () => {
