@@ -2,7 +2,12 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { GroupReportExportRequest } from '../shared/group-report'
 import type { SaveGeneratedReportRequest } from '../shared/report-history'
-import type { AIChatRequestOptions, AIProviderConfig, LegacyAIConfig } from '../shared/ai-provider'
+import type {
+  AIChatRequestOptions,
+  AIProviderConfig,
+  AIVisionTestRequest,
+  LegacyAIConfig
+} from '../shared/ai-provider'
 
 // 渲染器的自定义 API
 const api = {
@@ -29,6 +34,7 @@ const api = {
   setDefaultAIProvider: (providerId: string) =>
     ipcRenderer.invoke('ai:setDefaultProvider', providerId),
   testAIProvider: (providerId: string) => ipcRenderer.invoke('ai:testProvider', providerId),
+  testAIVision: (request: AIVisionTestRequest) => ipcRenderer.invoke('ai:testVision', request),
   migrateLegacyAIConfig: (config: LegacyAIConfig) => ipcRenderer.invoke('ai:migrateLegacy', config),
   copyImage: (base64String) => ipcRenderer.invoke('copy-image', base64String),
   getVoiceData: (sessionId: string, localId: number, createTime: number, svrId?: string | number) =>

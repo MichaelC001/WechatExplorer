@@ -282,7 +282,7 @@ export const buildGroupReportInput = (
     activeUsers: speakerCounts.size,
     timeSpan,
     generatedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
-    recordNote: `基于当前已加载的 ${rows.length} 条记录`,
+    recordNote: `基于 WechatExplorer 加载的 ${rows.length} 条记录`,
     footerNote: '基于已读取聊天记录生成；图片、表情等未解析内容仅按类型统计。',
     heroParticipants: topSpeakers.slice(0, 4).map((speaker) => speaker.name),
     avatars

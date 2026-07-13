@@ -1,6 +1,7 @@
 import type { AIRuntimeModelConfig } from '../../../../../shared/ai-provider'
 import { AIProviderCard } from '../ai-model/AIProviderCard'
 import { AIProviderEditor } from '../ai-model/AIProviderEditor'
+import { AIImageUnderstandingTest } from '../ai-model/AIImageUnderstandingTest'
 import { useAIModelSettingsController } from '../ai-model/useAIModelSettingsController'
 
 export function AIModelPage({
@@ -12,6 +13,9 @@ export function AIModelPage({
 }): React.ReactElement {
   const controller = useAIModelSettingsController({ onRuntimeChange, onNotice })
   const runtime = controller.state.runtime
+  const defaultProvider = controller.state.providers.find(
+    (provider) => provider.id === runtime?.providerId
+  )
   return (
     <div className="settings-page ai-model-page">
       <header className="settings-page-header">
@@ -35,6 +39,15 @@ export function AIModelPage({
               {runtime?.configured ? '可用' : '未配置'}
             </span>
           </section>
+          <AIImageUnderstandingTest
+            runtime={runtime}
+            provider={defaultProvider}
+            state={controller.state.visionTest}
+            onSelectImage={(file) => void controller.selectVisionImage(file)}
+            onPromptChange={controller.setVisionPrompt}
+            onTest={() => void controller.runVisionTest()}
+            onClear={controller.clearVisionImage}
+          />
           {controller.state.error ? (
             <p className="ai-model-page-error">{controller.state.error}</p>
           ) : null}

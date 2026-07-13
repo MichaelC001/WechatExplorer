@@ -88,3 +88,27 @@ export interface AIConnectionTestResult {
   error?: string
   latencyMs?: number
 }
+
+export interface AIVisionTestRequest {
+  providerId?: string
+  modelId?: string
+  prompt: string
+  imageDataUrl: string
+}
+
+export interface AIVisionTestResult {
+  success: boolean
+  providerName?: string
+  modelId?: string
+  modelName?: string
+  latencyMs?: number
+  usage?: {
+    input?: number
+    output?: number
+    total?: number
+    estimated?: boolean
+  }
+  answer?: string
+  code?: 'INVALID_IMAGE' | 'VISION_UNSUPPORTED' | 'API_ERROR'
+  error?: string
+}

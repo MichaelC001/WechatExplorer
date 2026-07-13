@@ -26,6 +26,8 @@ import type {
   AIProviderConfig,
   AIProviderListResult,
   AIRuntimeModelConfig,
+  AIVisionTestRequest,
+  AIVisionTestResult,
   LegacyAIConfig
 } from '../shared/ai-provider'
 
@@ -108,6 +110,7 @@ declare global {
       deleteAIProvider: (providerId: string) => Promise<AIProviderListResult>
       setDefaultAIProvider: (providerId: string) => Promise<AIProviderListResult>
       testAIProvider: (providerId: string) => Promise<AIConnectionTestResult>
+      testAIVision: (request: AIVisionTestRequest) => Promise<AIVisionTestResult>
       migrateLegacyAIConfig: (config: LegacyAIConfig) => Promise<AIProviderListResult>
       copyImage: (base64String: string) => Promise<{ success: boolean; error?: string }>
       getVoiceData: (

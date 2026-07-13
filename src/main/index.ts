@@ -27,7 +27,12 @@ import {
 } from './report-history-service'
 import type { GroupReportExportRequest } from '../shared/group-report'
 import type { SaveGeneratedReportRequest } from '../shared/report-history'
-import type { AIChatRequestOptions, AIProviderConfig, LegacyAIConfig } from '../shared/ai-provider'
+import type {
+  AIChatRequestOptions,
+  AIProviderConfig,
+  AIVisionTestRequest,
+  LegacyAIConfig
+} from '../shared/ai-provider'
 import { DatabaseKeyStore } from './database-key-store'
 import { ImageKeyConfigService } from './services/image-key-config-service'
 import { AIProviderService } from './services/ai-provider-service'
@@ -372,6 +377,9 @@ app.whenReady().then(async () => {
     aiProviderService.setDefault(providerId)
   )
   ipcMain.handle('ai:testProvider', (_, providerId: string) => aiProviderService.test(providerId))
+  ipcMain.handle('ai:testVision', (_, request: AIVisionTestRequest) =>
+    aiProviderService.testVision(request)
+  )
   ipcMain.handle('ai:migrateLegacy', (_, config: LegacyAIConfig) =>
     aiProviderService.migrateLegacy(config)
   )

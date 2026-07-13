@@ -8,6 +8,8 @@ import type {
   AIProviderListResult,
   AIProviderSummary,
   AIRuntimeModelConfig,
+  AIVisionTestRequest,
+  AIVisionTestResult,
   LegacyAIConfig
 } from '../../shared/ai-provider'
 import { AIProviderKeyStore } from '../ai-provider-key-store'
@@ -18,7 +20,8 @@ interface AIProviderMetadataFile {
   providers: Array<Omit<AIProviderSummary, 'hasApiKey' | 'isDefault'>>
 }
 
-type AIMessage = { role: string; content: string }
+type AIMessagePart = { type: 'text'; text: string } | { type: 'image'; dataUrl: string }
+type AIMessage = { role: string; content: string | AIMessagePart[] }
 type AIRequestResult = {
   data: string
   usage?: { input?: number; output?: number; total?: number; estimated?: boolean }
@@ -151,7 +154,7 @@ export class AIProviderService {
   }
 
   async chat(
-    messages: AIMessage[],
+    messages: Array<{ role: string; content: string }>,
     options?: AIChatRequestOptions
   ): Promise<{
     success: boolean
@@ -166,6 +169,42 @@ export class AIProviderService {
     }
   }
 
+  async testVision(request: AIVisionTestRequest): Promise<AIVisionTestResult> {
+    const startedAt = Date.now()
+    const imageError = validateVisionImage(request.imageDataUrl)
+    if (imageError) return { success: false, code: 'INVALID_IMAGE', error: imageError }
+    if (!request.prompt.trim()) {
+      return { success: false, code: 'INVALID_IMAGE', error: '请填写图片识别提示词' }
+    }
+    try {
+      const resolved = this.resolveProvider(request)
+      const result = await requestProvider(resolved.provider, resolved.key, resolved.model, [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: request.prompt.trim() },
+            { type: 'image', dataUrl: request.imageDataUrl }
+          ]
+        }
+      ])
+      if (!result.data.trim()) throw new Error('API 未返回识别内容')
+      this.markVisionCapability(resolved.provider.id, resolved.model)
+      const model = resolved.provider.models.find((item) => item.id === resolved.model)
+      return {
+        success: true,
+        providerName: resolved.provider.name,
+        modelId: resolved.model,
+        modelName: model?.name || resolved.model,
+        latencyMs: Date.now() - startedAt,
+        usage: result.usage,
+        answer: result.data
+      }
+    } catch (error) {
+      const failure = visionFailure(error)
+      return { success: false, ...failure, latencyMs: Date.now() - startedAt }
+    }
+  }
+
   private async request(
     messages: AIMessage[],
     options?: AIChatRequestOptions,
@@ -175,17 +214,25 @@ export class AIProviderService {
     usage?: { input?: number; output?: number; total?: number; estimated?: boolean }
   }> {
     if (options?.apiKey) return this.requestLegacy(messages, options)
+    const resolved = this.resolveProvider(options)
+    return requestProvider(resolved.provider, resolved.key, resolved.model, messages, testing)
+  }
+
+  private resolveProvider(options?: { providerId?: string; modelId?: string }): {
+    provider: AIProviderSummary
+    model: string
+    key: string
+  } {
     const list = this.list()
     const provider =
       list.providers.find((item) => item.id === options?.providerId) ||
       list.providers.find((item) => item.id === list.defaultProviderId)
     if (!provider) throw new Error('尚未配置 AI Provider')
     const model = options?.modelId || provider.defaultModel
+    if (!provider.models.some((item) => item.id === model)) throw new Error('当前模型不存在')
     const key = this.keyStore.get(provider.id).key || ''
     if (needsApiKey(provider) && !key) throw new Error('当前供应商尚未配置 API Key')
-    return provider.type === 'anthropic-messages'
-      ? requestAnthropic(provider, key, model, messages, testing)
-      : requestOpenAICompatible(provider, key, model, messages, testing)
+    return { provider, model, key }
   }
 
   private async requestLegacy(
@@ -212,6 +259,15 @@ export class AIProviderService {
     provider.status = status
     provider.lastTestedAt = Date.now()
     provider.lastError = lastError
+    this.writeMetadata(data)
+  }
+
+  private markVisionCapability(providerId: string, modelId: string): void {
+    const data = this.readMetadata()
+    const provider = data.providers.find((item) => item.id === providerId)
+    const model = provider?.models.find((item) => item.id === modelId)
+    if (!provider || !model || model.capabilities.vision) return
+    model.capabilities.vision = true
     this.writeMetadata(data)
   }
 
@@ -329,6 +385,51 @@ function buildHeaders(provider: AIProviderSummary, apiKey: string): Record<strin
   return headers
 }
 
+function requestProvider(
+  provider: AIProviderSummary,
+  apiKey: string,
+  model: string,
+  messages: AIMessage[],
+  testing = false
+): Promise<AIRequestResult> {
+  return provider.type === 'anthropic-messages'
+    ? requestAnthropic(provider, apiKey, model, messages, testing)
+    : requestOpenAICompatible(provider, apiKey, model, messages, testing)
+}
+
+function toOpenAIMessages(messages: AIMessage[]): Array<{ role: string; content: unknown }> {
+  return messages.map((message) => ({
+    role: message.role,
+    content:
+      typeof message.content === 'string'
+        ? message.content
+        : message.content.map((part) =>
+            part.type === 'text'
+              ? { type: 'text', text: part.text }
+              : { type: 'image_url', image_url: { url: part.dataUrl } }
+          )
+  }))
+}
+
+function toAnthropicMessages(messages: AIMessage[]): Array<{ role: string; content: unknown }> {
+  return messages
+    .filter((message) => message.role !== 'system')
+    .map((message) => ({
+      role: message.role,
+      content:
+        typeof message.content === 'string'
+          ? message.content
+          : message.content.map((part) => {
+              if (part.type === 'text') return { type: 'text', text: part.text }
+              const image = parseVisionImage(part.dataUrl)
+              return {
+                type: 'image',
+                source: { type: 'base64', media_type: image.mimeType, data: image.base64 }
+              }
+            })
+    }))
+}
+
 async function requestOpenAICompatible(
   provider: AIProviderSummary,
   apiKey: string,
@@ -346,7 +447,7 @@ async function requestOpenAICompatible(
       headers: buildHeaders(provider, apiKey),
       body: JSON.stringify({
         model,
-        messages,
+        messages: toOpenAIMessages(messages),
         temperature: provider.advanced.temperature,
         max_tokens: testing ? 8 : provider.advanced.maxTokens
       })
@@ -377,9 +478,16 @@ async function requestAnthropic(
 ): Promise<AIRequestResult> {
   const system = messages
     .filter((message) => message.role === 'system')
-    .map((message) => message.content)
+    .map((message) =>
+      typeof message.content === 'string'
+        ? message.content
+        : message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part.type === 'text' ? part.text : ''))
+            .join('\n')
+    )
     .join('\n\n')
-  const anthropicMessages = messages.filter((message) => message.role !== 'system')
+  const anthropicMessages = toAnthropicMessages(messages)
   const headers = buildHeaders(provider, apiKey)
   if (!headers['anthropic-version']) headers['anthropic-version'] = '2023-06-01'
   const endpoint = provider.baseUrl.endsWith('/messages')
@@ -439,4 +547,36 @@ function safeAIError(error: unknown): string {
   if (error instanceof DOMException && error.name === 'AbortError') return 'AI 请求超时'
   const message = error instanceof Error ? error.message : String(error)
   return message.replace(/sk-[a-z0-9_-]+/gi, '***').slice(0, 300)
+}
+
+function parseVisionImage(dataUrl: string): { mimeType: string; base64: string; bytes: number } {
+  const match = /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=]+)$/i.exec(dataUrl)
+  if (!match) throw new Error('图片格式不受支持，请选择 PNG、JPG、JPEG 或 WebP')
+  const bytes = Buffer.byteLength(match[2], 'base64')
+  return { mimeType: match[1].toLowerCase(), base64: match[2], bytes }
+}
+
+function validateVisionImage(dataUrl: string): string | undefined {
+  try {
+    const image = parseVisionImage(dataUrl)
+    if (!image.bytes) return '图片内容为空'
+    if (image.bytes > 10 * 1024 * 1024) return '图片不能超过 10 MB'
+    return undefined
+  } catch (error) {
+    return error instanceof Error ? error.message : '图片无法读取'
+  }
+}
+
+function visionFailure(error: unknown): {
+  code: 'VISION_UNSUPPORTED' | 'API_ERROR'
+  error: string
+} {
+  const message = safeAIError(error)
+  const unsupported =
+    /vision|multimodal|image[_ ]url|image input|image.*support|support.*image|图片.*不支持|不支持.*图片/i.test(
+      message
+    )
+  return unsupported
+    ? { code: 'VISION_UNSUPPORTED', error: '当前模型不支持图片理解' }
+    : { code: 'API_ERROR', error: message || 'API 返回错误' }
 }
