@@ -59,27 +59,16 @@ body {
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: var(--wxex-radius-md);
-  background: var(--wxex-brand);
-  color: #ffffff;
+  border-radius: 12px;
+  background: transparent;
   -webkit-app-region: no-drag;
 }
 
-.app-brand svg {
-  width: 34px;
-  height: 34px;
-}
-
-.app-brand path {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.app-brand circle {
-  fill: currentColor;
+.app-brand img {
+  display: block;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
 }
 
 .primary-navigation {

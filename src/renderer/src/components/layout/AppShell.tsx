@@ -2,6 +2,7 @@ import React from 'react'
 import { AccountSummary } from '../account/AccountSummary'
 import { PrimaryNavigation } from './PrimaryNavigation'
 import { AppPage, PRIMARY_NAV_ITEMS } from './navigation'
+import brandIcon from '../../assets/brand-icon.svg'
 
 interface SelfInfo {
   wxid: string
@@ -22,18 +23,7 @@ interface AppShellProps {
 function BrandLogo(): React.ReactElement {
   return (
     <div className="app-brand" title="WechatExplorer" aria-label="WechatExplorer">
-      <svg viewBox="0 0 40 40" aria-hidden="true" focusable="false">
-        <path d="M13 15.5 20 10l7 5.5" />
-        <path d="M13 24.5 20 30l7-5.5" />
-        <path d="M13 15.5v9" />
-        <path d="M27 15.5v9" />
-        <circle cx="20" cy="10" r="2.6" />
-        <circle cx="13" cy="15.5" r="2.6" />
-        <circle cx="27" cy="15.5" r="2.6" />
-        <circle cx="13" cy="24.5" r="2.6" />
-        <circle cx="27" cy="24.5" r="2.6" />
-        <circle cx="20" cy="30" r="2.6" />
-      </svg>
+      <img src={brandIcon} alt="" aria-hidden="true" />
     </div>
   )
 }

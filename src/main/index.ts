@@ -11,6 +11,7 @@ import {
   dialog
 } from 'electron'
 import { join } from 'path'
+import { existsSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { WechatDb } from './wechat-db'
@@ -75,6 +76,9 @@ const keyServiceMac = new KeyServiceMac()
 const keyServiceWin = new KeyServiceWin()
 let tray: Tray | null = null
 
+const packagedIconPath = join(process.resourcesPath, 'resources', 'icon.png')
+const appIconPath = existsSync(packagedIconPath) ? packagedIconPath : icon
+
 // WCDB's Windows runtime checks the host application name during wcdb_init.
 // Mirroring WeFlow's name unblocks the -1006 init failure on Windows.
 app.setName(process.platform === 'win32' ? 'WeFlow' : 'WechatExplorer')
@@ -99,7 +103,7 @@ function createWindow(): void {
     height: 800,
     show: false,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    icon: appIconPath,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -140,7 +144,9 @@ app.whenReady().then(async () => {
   }
 
   // 涓虹獥鍙ｈ缃簲鐢ㄧ▼搴忕敤鎴锋ā鍨?ID
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('com.wechatexplorer.app')
+
+  if (process.platform === 'darwin') app.dock?.setIcon(appIconPath)
 
   // 鍦ㄥ紑鍙戠幆澧冧腑榛樿鎸?F12 鎵撳紑鎴栧叧闂?DevTools
   // 鍦ㄧ敓浜х幆澧冧腑蹇界暐 CommandOrControl + R
@@ -674,8 +680,12 @@ function buildTrayMenu(): Menu {
 function setupTray(): void {
   if (tray) return
   try {
-    const image = nativeImage.createFromPath(join(__dirname, '../../resources/icon.png'))
-    tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image)
+    const image = nativeImage.createFromPath(appIconPath)
+    const traySize = process.platform === 'darwin' ? 20 : 24
+    const trayImage = image.isEmpty()
+      ? nativeImage.createEmpty()
+      : image.resize({ width: traySize, height: traySize, quality: 'best' })
+    tray = new Tray(trayImage)
     tray.setToolTip('WechatExplorer')
     tray.setContextMenu(buildTrayMenu())
     tray.on('click', () => showMainWindow())
