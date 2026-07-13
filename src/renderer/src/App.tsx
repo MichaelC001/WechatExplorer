@@ -810,12 +810,6 @@ function App(): React.ReactElement {
     setActivePage('settings')
   }
 
-  const handleSettingsConnectionChanged = (): void => {
-    void refreshSelfInfo()
-    void loadContacts()
-    void window.api.getSelf().then((result) => setIsDatabaseConnected(result.ready))
-  }
-
   const openReport = (reportId: string): void => {
     setSelectedReportId(reportId)
     setReportWorkspaceView('result')
@@ -1112,7 +1106,6 @@ function App(): React.ReactElement {
             selfInfo={selfInfo}
             dbReady={isDatabaseConnected}
             dbKey={dbKey}
-            onConnectionChanged={handleSettingsConnectionChanged}
             onNotice={(message) => {
               setReportNotice(message)
               window.setTimeout(() => setReportNotice(''), 3200)

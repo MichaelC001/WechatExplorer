@@ -10,7 +10,6 @@ export function SettingsWorkspace({
   selfInfo,
   dbReady,
   dbKey,
-  onConnectionChanged,
   onNotice,
   onOpenSettings
 }: {
@@ -19,7 +18,6 @@ export function SettingsWorkspace({
   selfInfo: SettingsSelfInfo | null
   dbReady: boolean
   dbKey: string
-  onConnectionChanged: () => void
   onNotice: (message: string) => void
   onOpenSettings: () => void
 }): React.ReactElement {
@@ -37,7 +35,6 @@ export function SettingsWorkspace({
           dbKey={dbKey}
           dbReady={dbReady}
           selfInfo={selfInfo}
-          onConnectionChanged={onConnectionChanged}
           onNotice={onNotice}
         />
       ) : (

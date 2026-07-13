@@ -10,19 +10,9 @@ export type SettingsCategoryId =
   | 'advanced'
   | 'about'
 
-export type ConnectionStatus = 'idle' | 'checking' | 'success' | 'warning' | 'error' | 'unavailable'
-
 export interface SettingsSelfInfo {
   wxid: string
   nickname: string
   avatar?: string
   accountRoot: string
-}
-
-export interface DiagnosticItem {
-  id: string
-  label: string
-  status: ConnectionStatus
-  result: string
-  detail?: string
 }

@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { buildConnectionDiagnostics } from '../utils/buildConnectionDiagnostics'
-import type { ConnectionStatus, SettingsSelfInfo } from '../model/types'
+import type { SettingsSelfInfo } from '../model/types'
+import {
+  buildConnectionDiagnostics,
+  formatConnectionCheckedAt,
+  getConnectionOverviewStatus,
+  isSameAccount,
+  sanitizeConnectionError
+} from './diagnostics'
+import type { ConnectionCheckState } from './types'
 
 interface AppSettings {
-  dbRoot: string
   imageAesKey: string
 }
 
@@ -12,111 +18,118 @@ export function useAccountDatabaseController({
   dbKey,
   dbReady,
   selfInfo,
-  onConnectionChanged,
   onNotice
 }: {
   dbKey: string
   dbReady: boolean
   selfInfo: SettingsSelfInfo | null
-  onConnectionChanged: () => void
   onNotice: (message: string) => void
 }) {
   const [settings, setSettings] = useState<AppSettings | null>(null)
-  const [pendingRoot, setPendingRoot] = useState('')
-  const [status, setStatus] = useState<ConnectionStatus>(dbReady ? 'success' : 'unavailable')
-  const [isTesting, setIsTesting] = useState(false)
-  const [lastVerifiedAt, setLastVerifiedAt] = useState<string | null>(null)
-  const [confirmDisconnect, setConfirmDisconnect] = useState(false)
+  const [checkState, setCheckState] = useState<ConnectionCheckState>({ status: 'idle' })
+  const [clock, setClock] = useState(() => new Date())
 
-  const refresh = useCallback(async () => {
-    const result = await window.api.getSettings()
-    setSettings(result.settings)
-    setPendingRoot(result.settings.dbRoot)
+  useEffect(() => {
+    let active = true
+    void window.api
+      .getSettings()
+      .then((result) => {
+        if (active) setSettings(result.settings)
+      })
+      .catch(() => {
+        if (active) setSettings(null)
+      })
+    return () => {
+      active = false
+    }
   }, [])
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
-  useEffect(() => setStatus(dbReady ? 'success' : 'unavailable'), [dbReady])
+    if (!checkState.checkedAt) return
+    const timer = window.setInterval(() => setClock(new Date()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [checkState.checkedAt])
 
+  const hasImageKey = Boolean(settings?.imageAesKey.trim())
   const diagnostics = useMemo(
     () =>
       buildConnectionDiagnostics({
         dbReady,
         selfInfo,
         hasDbKey: Boolean(dbKey.trim()),
-        hasImageKey: Boolean(settings?.imageAesKey.trim())
+        hasImageKey,
+        checkState
       }),
-    [dbKey, dbReady, selfInfo, settings?.imageAesKey]
+    [checkState, dbKey, dbReady, hasImageKey, selfInfo]
   )
+  const connectionStatus = useMemo(
+    () => getConnectionOverviewStatus({ dbReady, checkState, diagnostics }),
+    [checkState, dbReady, diagnostics]
+  )
+  const lastCheckedLabel = formatConnectionCheckedAt(checkState, clock)
 
-  const chooseDirectory = async (): Promise<void> => {
-    const result = await window.api.selectDbRoot()
-    if (!result.canceled && result.path) setPendingRoot(result.path)
-  }
-
-  const applyDirectory = async (): Promise<void> => {
-    if (!pendingRoot.trim()) return onNotice('请先选择数据库目录')
-    setStatus('checking')
-    const saved = await window.api.setSettings({ dbRoot: pendingRoot.trim() })
-    setSettings(saved.settings)
-    const result = await window.api.reopenWithRoot(saved.settings.dbRoot)
-    if (!result.success) {
-      setStatus('error')
-      return onNotice(result.error || '重新初始化失败')
-    }
-    setStatus('success')
-    setLastVerifiedAt(new Date().toLocaleString('zh-CN', { hour12: false }))
-    onConnectionChanged()
-    onNotice('数据库目录已应用并重新初始化')
-  }
-
-  const testConnection = async (): Promise<void> => {
-    if (isTesting) return
-    setIsTesting(true)
-    setStatus('checking')
+  const testConnection = useCallback(async (): Promise<void> => {
+    if (checkState.status === 'checking') return
+    setCheckState({ status: 'checking', checkedAt: checkState.checkedAt })
+    const checkedAt = new Date()
+    setClock(checkedAt)
     try {
-      const result = await window.api.testConnection(dbKey, pendingRoot || settings?.dbRoot)
+      const result = await window.api.testConnection(dbKey, selfInfo?.accountRoot)
       if (!result.success) {
-        setStatus('error')
-        onNotice(result.error || '连接测试失败')
+        setCheckState({
+          status: 'error',
+          checkedAt,
+          message: sanitizeConnectionError(result.error)
+        })
+        onNotice('连接检测失败，请查看诊断结果')
         return
       }
-      setStatus('success')
-      setLastVerifiedAt(new Date().toLocaleString('zh-CN', { hour12: false }))
-      onNotice('连接验证通过')
-    } finally {
-      setIsTesting(false)
+
+      const identityMatched = isSameAccount({
+        currentWxid: selfInfo?.wxid,
+        probeWxid: result.wxid,
+        currentRoot: selfInfo?.accountRoot,
+        probeRoot: result.accountRoot
+      })
+      if (identityMatched === false) {
+        setCheckState({
+          status: 'warning',
+          checkedAt,
+          message: '当前连接账号与页面账号不一致',
+          identityMatched
+        })
+        onNotice('连接检测失败，请查看诊断结果')
+        return
+      }
+
+      setCheckState({ status: 'success', checkedAt, identityMatched })
+      onNotice(hasImageKey ? '连接检测完成' : '连接可用，但部分能力需要配置')
+    } catch {
+      setCheckState({ status: 'error', checkedAt, message: '数据库连接检查未通过' })
+      onNotice('连接检测失败，请查看诊断结果')
     }
-  }
+  }, [checkState, dbKey, hasImageKey, onNotice, selfInfo])
 
-  const openAccountDirectory = async (): Promise<void> => {
+  const openAccountDirectory = useCallback(async (): Promise<void> => {
     const result = await window.api.openAccountRoot()
-    if (!result.success) onNotice(result.error || '打开账号目录失败')
-  }
+    if (!result.success) onNotice('无法打开账号目录')
+  }, [onNotice])
 
-  const disconnect = async (): Promise<void> => {
-    const result = await window.api.disconnectDb()
-    setConfirmDisconnect(false)
-    if (!result.success) return onNotice(result.error || '断开连接失败')
-    setStatus('unavailable')
-    onConnectionChanged()
-    onNotice('数据库连接已断开，微信原始数据未被修改')
-  }
+  const copyAccountDirectory = useCallback(async (): Promise<void> => {
+    const accountRoot = selfInfo?.accountRoot
+    if (!accountRoot) return onNotice('账号目录不可用')
+    const result = await window.api.copyText(accountRoot)
+    onNotice(result.success ? '账号目录已复制' : '复制账号目录失败')
+  }, [onNotice, selfInfo?.accountRoot])
 
   return {
-    settings,
-    pendingRoot,
-    status,
     diagnostics,
-    isTesting,
-    lastVerifiedAt,
-    confirmDisconnect,
-    setConfirmDisconnect,
-    chooseDirectory,
-    applyDirectory,
+    connectionStatus,
+    checkState,
+    isChecking: checkState.status === 'checking',
+    lastCheckedLabel,
     testConnection,
     openAccountDirectory,
-    disconnect
+    copyAccountDirectory
   }
 }
