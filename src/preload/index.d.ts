@@ -8,6 +8,11 @@ import {
   SaveGeneratedReportRequest,
   SaveGeneratedReportResult
 } from '../shared/report-history'
+import type {
+  DatabaseKeyEnvironment,
+  DatabaseKeyStorageResult,
+  DatabaseKeyValidationResult
+} from '../shared/database-key'
 
 export type ParsedContent =
   | { type: 'text'; content: string }
@@ -113,8 +118,14 @@ declare global {
       ) => Promise<SaveGeneratedReportResult>
       deleteGeneratedReport: (reportId: string) => Promise<DeleteGeneratedReportResult>
       revealGroupReport: (filePath: string) => Promise<{ success: boolean; error?: string }>
-      getSavedDbKey: () => Promise<{ success: boolean; key?: string; error?: string }>
-      autoGetDbKey: () => Promise<{
+      getSavedDbKey: () => Promise<DatabaseKeyStorageResult>
+      getDatabaseKeyEnvironment: () => Promise<DatabaseKeyEnvironment>
+      readDatabaseKeyClipboard: () => Promise<{
+        success: boolean
+        value?: string
+        error?: string
+      }>
+      autoGetDbKey: (options?: { save?: boolean }) => Promise<{
         success: boolean
         key?: string
         error?: string
@@ -141,7 +152,7 @@ declare global {
         }
       }>
       pasteAndSaveDbKey: () => Promise<{ success: boolean; key?: string; error?: string }>
-      saveDbKey: (key: string) => Promise<{ success: boolean; key?: string; error?: string }>
+      saveDbKey: (key: string) => Promise<DatabaseKeyStorageResult>
       clearSavedDbKey: () => Promise<{ success: boolean; error?: string }>
       onWcdbChange: (callback: (payload: { type: string; json: string }) => void) => () => void
       onDbKeyStatus: (callback: (payload: { message: string }) => void) => () => void
@@ -187,15 +198,7 @@ declare global {
           }
         | { ready: false }
       >
-      testConnection: (
-        key: string,
-        accountRoot?: string
-      ) => Promise<{
-        success: boolean
-        error?: string
-        accountRoot?: string
-        wxid?: string
-      }>
+      testConnection: (key: string, accountRoot?: string) => Promise<DatabaseKeyValidationResult>
       reopenWithRoot: (accountRoot: string) => Promise<{
         success: boolean
         error?: string

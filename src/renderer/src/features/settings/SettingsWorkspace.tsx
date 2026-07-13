@@ -3,6 +3,8 @@ import { SettingsSidebar } from './components/SettingsSidebar'
 import { SETTINGS_CATEGORY_LABELS } from './model/settingsNavigation'
 import type { SettingsCategoryId, SettingsSelfInfo } from './model/types'
 import { AccountDatabasePage } from './pages/AccountDatabasePage'
+import { DatabaseKeyPage } from './pages/DatabaseKeyPage'
+import type { Contact } from '../../../../shared/types'
 
 export function SettingsWorkspace({
   selectedCategory,
@@ -10,6 +12,11 @@ export function SettingsWorkspace({
   selfInfo,
   dbReady,
   dbKey,
+  onDbKeyChange,
+  onDatabaseConnectionChange,
+  onSelfInfoChange,
+  onContactsChange,
+  onFilteredContactsChange,
   onNotice,
   onOpenSettings
 }: {
@@ -18,6 +25,11 @@ export function SettingsWorkspace({
   selfInfo: SettingsSelfInfo | null
   dbReady: boolean
   dbKey: string
+  onDbKeyChange: (key: string) => void
+  onDatabaseConnectionChange: (connected: boolean) => void
+  onSelfInfoChange: (info: SettingsSelfInfo | null) => void
+  onContactsChange: (contacts: Contact[]) => void
+  onFilteredContactsChange: (contacts: Contact[]) => void
   onNotice: (message: string) => void
   onOpenSettings: () => void
 }): React.ReactElement {
@@ -35,6 +47,18 @@ export function SettingsWorkspace({
           dbKey={dbKey}
           dbReady={dbReady}
           selfInfo={selfInfo}
+          onNotice={onNotice}
+        />
+      ) : selectedCategory === 'database-key' ? (
+        <DatabaseKeyPage
+          dbKey={dbKey}
+          dbReady={dbReady}
+          selfInfo={selfInfo}
+          onDbKeyChange={onDbKeyChange}
+          onDatabaseConnectionChange={onDatabaseConnectionChange}
+          onSelfInfoChange={onSelfInfoChange}
+          onContactsChange={onContactsChange}
+          onFilteredContactsChange={onFilteredContactsChange}
           onNotice={onNotice}
         />
       ) : (

@@ -188,9 +188,13 @@ function App(): React.ReactElement {
   const currentGroupSnapshotRef = React.useRef<GroupSnapshot | null>(null)
   const syntheticGroupMessagesRef = React.useRef<Record<string, Message[]>>({})
   const groupMemberMetaRef = React.useRef<Record<string, Map<string, GroupMemberMeta>>>({})
+  React.useEffect(() => {
+    if (!reportNotice) return
+    const timer = window.setTimeout(() => setReportNotice(''), 3200)
+    return () => window.clearTimeout(timer)
+  }, [reportNotice])
   const selectedContactMd5Ref = React.useRef<string>('')
   const contactAvatarHydrationRunRef = React.useRef(0)
-
   const reportGeneration = useGroupReportGeneration({
     sourceContact: reportSourceContact,
     summaryDateRange,
@@ -204,7 +208,6 @@ function App(): React.ReactElement {
       const result = await window.api.listGeneratedReports()
       if (!result.success) {
         setReportNotice(result.error || '日报历史加载失败')
-        window.setTimeout(() => setReportNotice(''), 3200)
         return
       }
       const reports = result.reports || []
@@ -214,7 +217,6 @@ function App(): React.ReactElement {
       )
     } catch (error) {
       setReportNotice(error instanceof Error ? error.message : String(error))
-      window.setTimeout(() => setReportNotice(''), 3200)
     }
   }, [])
 
@@ -819,12 +821,10 @@ function App(): React.ReactElement {
   const handleOpenReportWorkspace = (): void => {
     if (!selectedContact) {
       setReportNotice('请先选择一个群聊')
-      window.setTimeout(() => setReportNotice(''), 3200)
       return
     }
     if (!isGroupContact(selectedContact)) {
       setReportNotice('AI 群聊日报仅支持群聊')
-      window.setTimeout(() => setReportNotice(''), 3200)
       return
     }
     setReportNotice('')
@@ -881,7 +881,6 @@ function App(): React.ReactElement {
       if (!result.success || !result.record) {
         setIsSavingGeneratedReport(false)
         setReportNotice(result.error || '日报保存失败')
-        window.setTimeout(() => setReportNotice(''), 3200)
         return
       }
 
@@ -911,7 +910,6 @@ function App(): React.ReactElement {
   const openReportResult = (): void => {
     if (isSavingGeneratedReport) {
       setReportNotice('日报正在保存，请稍候')
-      window.setTimeout(() => setReportNotice(''), 2400)
       return
     }
     const targetReportId = latestGeneratedReportId || selectedReportId
@@ -1106,10 +1104,12 @@ function App(): React.ReactElement {
             selfInfo={selfInfo}
             dbReady={isDatabaseConnected}
             dbKey={dbKey}
-            onNotice={(message) => {
-              setReportNotice(message)
-              window.setTimeout(() => setReportNotice(''), 3200)
-            }}
+            onDbKeyChange={setDbKey}
+            onDatabaseConnectionChange={setIsDatabaseConnected}
+            onSelfInfoChange={setSelfInfo}
+            onContactsChange={setContacts}
+            onFilteredContactsChange={setFilteredContacts}
+            onNotice={setReportNotice}
             onOpenSettings={openSettings}
           />
         )

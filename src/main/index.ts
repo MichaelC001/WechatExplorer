@@ -34,6 +34,7 @@ import * as chat from './services/chat-service'
 import { apiServer } from './http-server'
 import { skillResourceService } from './services/skill-resource-service'
 import { testLocalApiRequest } from './services/local-api-test-service'
+import { isWindowsWechatRunning } from './services/wechat-process-status'
 import { loadSettings, saveSettings, getSettingsPath, AppSettings } from './services/settings-store'
 import {
   getBootstrapCache,
@@ -194,6 +195,27 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('key:getSavedDbKey', async () => databaseKeyStore.load())
 
+  ipcMain.handle('key:getEnvironment', async () => {
+    const storage = await databaseKeyStore.getStatus()
+    const self = chat.getSelfAccountInfo()
+    return {
+      platform: process.platform,
+      autoDetectSupported: process.platform === 'win32',
+      wechatRunning: await isWindowsWechatRunning(),
+      accountIdentified: Boolean(self?.wxid),
+      dbConnected: chat.isReady(),
+      encryptionAvailable: storage.encryptionAvailable
+    }
+  })
+
+  ipcMain.handle('key:readClipboardDbKey', () => {
+    try {
+      return { success: true, value: clipboard.readText().trim() }
+    } catch {
+      return { success: false, error: '无法读取剪贴板' }
+    }
+  })
+
   ipcMain.handle('key:pasteAndSaveDbKey', async () => {
     const clipboardKey = clipboard.readText().trim()
     return databaseKeyStore.save(clipboardKey)
@@ -205,7 +227,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('key:clearSavedDbKey', async () => databaseKeyStore.clear())
 
-  ipcMain.handle('key:autoGetDbKey', async (event) => {
+  ipcMain.handle('key:autoGetDbKey', async (event, options?: { save?: boolean }) => {
     const onStatus = (message: string): void => {
       if (!event.sender.isDestroyed()) event.sender.send('key:dbKeyStatus', { message })
     }
@@ -214,6 +236,8 @@ app.whenReady().then(async () => {
         ? await keyServiceWin.autoGetDbKey(60_000, onStatus)
         : await keyServiceMac.autoGetDbKey(onStatus)
     if (!result.success || !result.key) return result
+
+    if (options?.save === false) return result
 
     const saved = await databaseKeyStore.save(result.key)
     return {

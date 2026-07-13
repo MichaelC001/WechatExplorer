@@ -4,6 +4,10 @@ import {
   parseMessageContent,
   parseStickerMessageFromRow
 } from '../message-parser'
+import type {
+  DatabaseKeyValidationCode,
+  DatabaseKeyValidationResult
+} from '../../shared/database-key'
 
 export function getCurrentKey(): string {
   if (!dbRef) return ''
@@ -239,11 +243,7 @@ export function listMessages(
       }
     }
 
-    if (
-      !contentData &&
-      typeof content === 'string' &&
-      /^[0-9a-fA-F]{64,}$/.test(content.trim())
-    ) {
+    if (!contentData && typeof content === 'string' && /^[0-9a-fA-F]{64,}$/.test(content.trim())) {
       const parsed = parseStickerMessageFromRow(msg, content)
       if (parsed.type === 'sticker') {
         if (!parsed.url && parsed.md5) {
@@ -324,8 +324,7 @@ export function resolveMd5(query: string): FormattedContact | null {
 
   const partial = contacts.find(
     (c) =>
-      c.m_nsNickName.toLowerCase().includes(lower) ||
-      c.m_nsUsrName.toLowerCase().includes(lower)
+      c.m_nsNickName.toLowerCase().includes(lower) || c.m_nsUsrName.toLowerCase().includes(lower)
   )
   return partial || null
 }
@@ -377,32 +376,87 @@ export function getSelfAccountInfo(): SelfAccountInfo | null {
   }
 }
 
-export function testConnection(
-  key: string,
-  accountRoot?: string
-): { success: boolean; error?: string; accountRoot?: string; wxid?: string } {
-  try {
-    const probeKey = key.replace(/^0x/i, '').trim()
-    if (!probeKey) {
-      return { success: false, error: '密钥不能为空' }
-    }
-    const probe = accountRoot ? new WechatDb(probeKey, accountRoot) : new WechatDb(probeKey)
-    try {
-      probe.close()
-    } catch {
-      // best effort
-    }
-    return {
-      success: true,
-      accountRoot: probe.getWcdb4Client().getAccountRoot(),
-      wxid: (probe.getWcdb4Client().getMyUsernameCandidates?.() ?? [])[0] || ''
-    }
-  } catch (error) {
+export function testConnection(key: string, accountRoot?: string): DatabaseKeyValidationResult {
+  const probeKey = key.replace(/^0x/i, '').trim()
+  if (!/^[0-9a-f]{64}$/i.test(probeKey)) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : String(error)
+      code: 'INVALID_FORMAT',
+      error: '密钥格式不正确'
     }
   }
+
+  let probe: WechatDb | null = null
+  let ownsProbe = false
+  try {
+    const current = dbRef
+    const canReuseCurrent =
+      current &&
+      getCurrentKey().replace(/^0x/i, '').trim() === probeKey &&
+      (!accountRoot || getCurrentAccountRoot() === accountRoot)
+    const validationDb = canReuseCurrent
+      ? current
+      : accountRoot
+        ? new WechatDb(probeKey, accountRoot)
+        : new WechatDb(probeKey)
+    probe = validationDb
+    ownsProbe = validationDb !== current
+    const client = validationDb.getWcdb4Client()
+    const contacts = client.getSessions()
+    const messages = client.getChatTables()
+    if (contacts[0]) client.getMessages(contacts[0].username, undefined, undefined, { limit: 1 })
+    return {
+      success: true,
+      accountRoot: client.getAccountRoot(),
+      wxid: (client.getMyUsernameCandidates?.() ?? [])[0] || '',
+      contacts: { available: true, count: contacts.length },
+      messages: { available: true, count: messages.length }
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    const code = mapConnectionError(detail)
+    return {
+      success: false,
+      code,
+      error: DATABASE_KEY_ERROR_MESSAGES[code]
+    }
+  } finally {
+    try {
+      // macOS native shutdown is process-wide. Do not tear down the active reader
+      // when validating a replacement key; the new runtime connection takes over on save.
+      if (ownsProbe && !(process.platform === 'darwin' && dbRef)) probe?.close()
+    } catch {
+      // Validation probes are best-effort closed without exposing native details.
+    }
+  }
+}
+
+const DATABASE_KEY_ERROR_MESSAGES: Record<DatabaseKeyValidationCode, string> = {
+  INVALID_FORMAT: '密钥格式不正确',
+  DATABASE_OPEN_FAILED: '无法打开数据库',
+  ACCOUNT_MISMATCH: '密钥与当前账号不匹配',
+  ROOT_UNAVAILABLE: '当前数据库目录不可用',
+  DATABASE_FILE_MISSING: '数据库文件缺失',
+  UNKNOWN_VALIDATION_ERROR: '未知验证错误'
+}
+
+function mapConnectionError(detail: string): DatabaseKeyValidationCode {
+  const normalized = detail.toLowerCase()
+  if (normalized.includes('-1005') || normalized.includes('不匹配')) return 'ACCOUNT_MISMATCH'
+  if (normalized.includes('session.db') || normalized.includes('数据库文件')) {
+    return 'DATABASE_FILE_MISSING'
+  }
+  if (
+    normalized.includes('数据目录') ||
+    normalized.includes('账号目录') ||
+    normalized.includes('db_storage')
+  ) {
+    return 'ROOT_UNAVAILABLE'
+  }
+  if (normalized.includes('wcdb_open_account') || normalized.includes('open')) {
+    return 'DATABASE_OPEN_FAILED'
+  }
+  return 'UNKNOWN_VALIDATION_ERROR'
 }
 
 export function reopenWithRoot(accountRoot: string): boolean {

@@ -3609,6 +3609,42 @@ body {
 .settings-diagnostic small { margin-left:auto; overflow:hidden; color:#66706b; text-overflow:ellipsis; white-space:nowrap; }
 .settings-empty-state { display:grid; flex:1; place-content:center; color:#66706b; text-align:center; }
 .settings-empty-state h2 { color:#202724; }
+/* SETTINGS-02: database key */
+.database-key-content { padding-bottom:48px; }
+.database-key-badge.unconfigured { background:#f1f3f2; color:#66706b; }
+.database-key-badge.validating { background:#eef4f8; color:#4f7188; }
+.database-key-badge.invalid { background:#f9eeee; color:#c85a5a; }
+.database-key-status-card dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px 36px; margin:0 0 20px; }
+.database-key-status-card dl div { min-width:0; }
+.database-key-status-card dt,.database-key-diagnostics dt { color:#929a96; font-size:12px; }
+.database-key-status-card dd,.database-key-diagnostics dd { overflow:hidden; margin:5px 0 0; color:#35403b; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
+.database-key-mono { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+.database-key-success { color:#2e8b68!important; }.database-key-muted { color:#66706b!important; }
+.database-key-primary,.database-key-secondary { min-height:36px; padding:0 15px; border:1px solid #247a63; border-radius:8px; cursor:pointer; font:600 13px/1 inherit; }
+.database-key-primary { background:#247a63; color:#fff; }.database-key-secondary { background:#fff; color:#247a63; }
+.database-key-primary:hover:not(:disabled) { background:#1d6754; }.database-key-secondary:hover:not(:disabled) { background:#f0f7f4; }
+.database-key-primary:disabled,.database-key-secondary:disabled { cursor:not-allowed; opacity:.45; }
+.database-key-editor label { display:block; margin-bottom:9px; color:#46514c; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+.database-key-input-row { display:flex; min-width:0; height:42px; border:1px solid #d5ddda; border-radius:8px; background:#f4f7f5; }
+.database-key-input-row:focus-within { border-color:#247a63; box-shadow:0 0 0 2px rgba(36,122,99,.09); }
+.database-key-input-row input { min-width:0; flex:1; border:0; outline:0; padding:0 14px; background:transparent; color:#202724; font:13px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace; }
+.database-key-input-row button { display:grid; width:38px; flex:0 0 38px; place-items:center; border:0; background:transparent; color:#66706b; cursor:pointer; }
+.database-key-input-row button:hover:not(:disabled) { color:#247a63; }.database-key-input-row button:disabled { cursor:not-allowed; opacity:.4; }
+.database-key-input-row svg { width:17px; fill:none; stroke:currentColor; stroke-linecap:round; stroke-linejoin:round; stroke-width:1.8; }
+.database-key-editor>p { margin:9px 0 0; color:#66706b; font-size:12px; line-height:1.6; }
+.database-key-actions { display:flex; gap:9px; margin-top:18px; }
+.database-key-feedback { display:flex; flex-wrap:wrap; align-items:center; gap:8px 18px; margin-top:12px; padding:12px 15px; border-radius:8px; font-size:12px; line-height:1.5; }
+.database-key-feedback.checking { background:#f1f4f3; color:#66706b; }.database-key-feedback.checking i { width:14px; height:14px; border:2px solid #c8d5d0; border-top-color:#247a63; border-radius:50%; animation:settings-spin .8s linear infinite; }
+.database-key-feedback.success { border:1px solid #bfded3; background:#eaf5f1; color:#2e765d; }.database-key-feedback.success strong { width:100%; }
+.database-key-feedback.error { border:1px solid #efcaca; background:#fff2f2; color:#a84444; }
+.database-key-auto-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }.database-key-auto strong { color:#35403b; font-size:14px; }.database-key-auto p { margin:6px 0 0; color:#66706b; font-size:12px; line-height:1.6; }
+.database-key-prerequisites { display:flex; flex-wrap:wrap; gap:8px 20px; margin:18px 0 0; padding:14px 0 0; border-top:1px solid #edf0ee; list-style:none; color:#8b5c25; font-size:12px; }.database-key-prerequisites li::before { content:'○'; margin-right:6px; }.database-key-prerequisites li.ok { color:#2e8b68; }.database-key-prerequisites li.ok::before { content:'✓'; }
+.database-key-phases { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; margin:18px 0 0; padding:0; counter-reset:key-phase; list-style:none; }.database-key-phases li { position:relative; padding-top:24px; color:#929a96; text-align:center; font-size:11px; }.database-key-phases li::before { position:absolute; top:0; left:50%; display:grid; width:18px; height:18px; place-items:center; border:1px solid #d5ddda; border-radius:50%; background:#fff; content:counter(key-phase); counter-increment:key-phase; transform:translateX(-50%); }.database-key-phases li.active { color:#247a63; }.database-key-phases li.active::before { border-color:#247a63; background:#247a63; color:#fff; }
+.database-key-auto-error { display:grid; gap:4px; margin-top:16px; padding:12px 14px; border-left:3px solid #c68635; background:#fff8ec; color:#79501f; font-size:12px; }.database-key-auto-error span { overflow-wrap:anywhere; }.database-key-auto-error p { color:#79501f; }.database-key-auto-error button { justify-self:start; border:0; padding:4px 0; background:transparent; color:#247a63; cursor:pointer; font:600 12px inherit; }
+.database-key-security-info { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1px; overflow:hidden; border:1px solid #e3e8e5; border-radius:9px; background:#e3e8e5; }.database-key-security-info span { display:grid; gap:6px; padding:15px; background:#f5f7f6; color:#66706b; font-size:12px; line-height:1.5; }.database-key-security-info strong { color:#35403b; font-size:13px; }
+.database-key-diagnostics { margin-top:22px; border:1px solid #dde3e0; border-radius:9px; background:#fff; }.database-key-diagnostics summary { padding:14px 16px; color:#46514c; cursor:pointer; font-size:13px; font-weight:600; }.database-key-diagnostics dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 28px; margin:0; padding:2px 16px 16px; }.database-key-diagnostics button { margin:0 16px 16px; border:0; padding:0; background:transparent; color:#247a63; cursor:pointer; font:600 12px inherit; }
+.database-key-danger { margin-top:30px; padding-bottom:1px; }.database-key-danger>h2 { margin:0 0 14px; color:#c85a5a; font-size:15px; }.database-key-danger>div { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:16px 20px; border:1px solid #efcdcd; background:#fff7f7; }.database-key-danger>div:first-of-type { border-radius:9px 9px 0 0; }.database-key-danger>div:last-of-type { border-top:0; border-radius:0 0 9px 9px; }.database-key-danger span { display:grid; gap:4px; }.database-key-danger strong { color:#4a3c3c; font-size:13px; }.database-key-danger small { color:#786868; font-size:12px; }.database-key-danger button { min-height:34px; flex:0 0 auto; border:1px solid #e8baba; border-radius:8px; padding:0 13px; background:#fff; color:#c85a5a; cursor:pointer; }.database-key-danger button:disabled { cursor:not-allowed; opacity:.45; }
+.database-key-confirm-backdrop { position:fixed; z-index:30; inset:0; display:grid; place-items:center; padding:24px; background:rgba(25,32,29,.34); }.database-key-confirm { width:min(100%,430px); padding:22px; border-radius:12px; background:#fff; box-shadow:0 18px 50px rgba(24,35,30,.2); }.database-key-confirm h2 { margin:0; color:#202724; font-size:17px; }.database-key-confirm p { margin:12px 0 22px; color:#66706b; font-size:13px; line-height:1.7; }.database-key-confirm>div { display:flex; justify-content:flex-end; gap:8px; }.database-key-confirm button { min-height:34px; border:1px solid #dde3e0; border-radius:8px; padding:0 14px; background:#fff; color:#46514c; cursor:pointer; }.database-key-confirm button.danger { border-color:#c85a5a; background:#c85a5a; color:#fff; }
 @keyframes settings-spin { to { transform:rotate(360deg); } }
 @media (max-width:900px) {
   .settings-sidebar { width:248px; flex-basis:248px; }
@@ -3617,11 +3653,14 @@ body {
   .settings-account-overview { grid-template-columns:minmax(0,1fr) auto; gap:18px; }
   .settings-account-facts { grid-column:1/-1; grid-template-columns:repeat(2,minmax(0,1fr)); }
   .settings-account-actions { grid-row:1; grid-column:2; }
+  .database-key-security-info { grid-template-columns:1fr; }
 }
 @media (max-width:700px) {
   .settings-account-overview { grid-template-columns:minmax(0,1fr); }
   .settings-account-actions { grid-row:auto; grid-column:1; grid-template-columns:repeat(2,minmax(0,1fr)); }
   .settings-account-root { grid-column:1; }
+  .database-key-status-card dl,.database-key-diagnostics dl { grid-template-columns:1fr; }
+  .database-key-auto-heading { flex-direction:column; }.database-key-phases { grid-template-columns:1fr; }.database-key-phases li { padding:0 0 0 28px; text-align:left; }.database-key-phases li::before { top:-2px; left:0; transform:none; }
 }
 .api-center-layout > * { min-width: 0; min-height: 0; box-sizing: border-box; }
 .api-section-heading h2, .api-introduction h2, .api-integrations h2, .api-runtime-title h2 { margin: 0; color: var(--wxex-text-primary); font: 700 17px/24px var(--wxex-font); }
