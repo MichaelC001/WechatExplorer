@@ -107,15 +107,17 @@ export function bootstrapWcdbNative(libPath?: string, libDirOverride?: string): 
     }
   }
   if (!initOk) {
-    throw new Error(`InitProtection 失败，错误码: ${lastCode}; tried=${resourceRoots.join(' | ')}`)
-  }
-
-  const wcdbInit = lib.func('int32 wcdb_init()') as () => number
-  console.log('[WCDB4] bootstrap wcdb_init begin')
-  const initRc = Number(wcdbInit())
-  console.log(`[WCDB4] bootstrap wcdb_init rc=${initRc}`)
-  if (initRc !== 0) {
-    throw new Error(`wcdb_init 失败，错误码: ${initRc}`)
+    console.warn(
+      `[WCDB4] bootstrap InitProtection 返回 ${lastCode}，继续尝试 wcdb_init/open; tried=${resourceRoots.join(' | ')}`
+    )
+  } else {
+    const wcdbInit = lib.func('int32 wcdb_init()') as () => number
+    console.log('[WCDB4] bootstrap wcdb_init begin')
+    const initRc = Number(wcdbInit())
+    console.log(`[WCDB4] bootstrap wcdb_init rc=${initRc}`)
+    if (initRc !== 0) {
+      console.warn(`[WCDB4] bootstrap wcdb_init 返回 ${initRc}，继续尝试 wcdb_open_account`)
+    }
   }
 
   wcdbBootstrapLib = lib
@@ -1172,7 +1174,7 @@ export class Wcdb4Client {
       const initResult = wcdbInit()
       console.log(`[WCDB4] wcdb_init rc=${initResult}`)
       if (initResult !== 0) {
-        throw new Error(`wcdb_init 失败，错误码: ${initResult}`)
+        console.warn(`[WCDB4] wcdb_init 返回 ${initResult}，继续尝试 wcdb_open_account`)
       }
     }
 
@@ -1354,7 +1356,9 @@ export class Wcdb4Client {
       }
     }
 
-    throw new Error(`InitProtection 失败，错误码: ${lastCode}; tried=${resourceRoots.join(' | ')}`)
+    console.warn(
+      `[WCDB4] InitProtection 返回 ${lastCode}，继续尝试 wcdb_init/open; tried=${resourceRoots.join(' | ')}`
+    )
   }
 
   private findNativeLibrary(): string {
