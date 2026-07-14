@@ -164,6 +164,7 @@ function App(): React.ReactElement {
   const [dbKeyStatus, setDbKeyStatus] = useState('')
   const [dbKeyStatusKind, setDbKeyStatusKind] = useState<'normal' | 'success' | 'error'>('normal')
   const [showDbKey, setShowDbKey] = useState(false)
+  const [dbRootInput, setDbRootInput] = useState('')
   const [showMacKeyFaq, setShowMacKeyFaq] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>('archive')
   const [settingsCategory, setSettingsCategory] = useState<SettingsCategoryId>('account-database')
@@ -361,6 +362,13 @@ function App(): React.ReactElement {
   React.useEffect(() => {
     let active = true
     const attemptAutoConnect = async (): Promise<void> => {
+      // 预填已保存的微信聊天文件路径
+      try {
+        const settings = await window.api.getSettings()
+        if (active && settings?.settings?.dbRoot) setDbRootInput(settings.settings.dbRoot)
+      } catch {
+        // 忽略读取设置失败，继续走密钥流程
+      }
       // 优先级 1: 构建期环境变量 VITE_DB_KEY（本地开发用）
       const envKey = String(import.meta.env.VITE_DB_KEY || '').trim()
       // 优先级 2: 上一次保存到 safeStorage 的密钥
@@ -439,6 +447,15 @@ function App(): React.ReactElement {
     const keyToUse = keyInput || dbKey
     if (!keyToUse) return
     setBootState('connecting')
+    // 持久化用户手动指定的微信聊天文件路径，供 db:init 读取 settings.dbRoot
+    const trimmedRoot = dbRootInput.trim()
+    if (trimmedRoot) {
+      try {
+        await window.api.setSettings({ dbRoot: trimmedRoot })
+      } catch {
+        // 忽略保存失败，仍尝试用默认路径连接
+      }
+    }
     setStartupProgress({
       title: '正在连接数据库...',
       subtitle: '正在初始化微信数据',
@@ -1263,6 +1280,19 @@ function App(): React.ReactElement {
               <EyeIcon hidden={showDbKey} />
             </button>
           </div>
+          {window.electron.process.platform === 'win32' && (
+            <div className="login-input-wrapper">
+              <input
+                type="text"
+                className="login-input"
+                value={dbRootInput}
+                onChange={(e) => setDbRootInput(e.target.value)}
+                placeholder="微信聊天文件路径 (如 D:\\Tencent\\WeChat\\xwechat_files)"
+                spellCheck={false}
+                autoComplete="off"
+              />
+            </div>
+          )}
           <button
             className="login-btn login-btn-secondary"
             onClick={handleAutoGetDbKey}
