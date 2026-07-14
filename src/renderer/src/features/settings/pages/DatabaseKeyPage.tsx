@@ -24,6 +24,7 @@ export function DatabaseKeyPage({
   onSelfInfoChange,
   onContactsChange,
   onFilteredContactsChange,
+  onReturnToLogin,
   onNotice
 }: {
   dbKey: string
@@ -34,6 +35,7 @@ export function DatabaseKeyPage({
   onSelfInfoChange: (info: SettingsSelfInfo | null) => void
   onContactsChange: (contacts: Contact[]) => void
   onFilteredContactsChange: (contacts: Contact[]) => void
+  onReturnToLogin: () => void
   onNotice: (message: string) => void
 }): React.ReactElement {
   const controller = useDatabaseKeyController({
@@ -45,6 +47,7 @@ export function DatabaseKeyPage({
     onSelfInfoChange,
     onContactsChange,
     onFilteredContactsChange,
+    onReturnToLogin,
     onNotice
   })
 
@@ -132,6 +135,7 @@ export function DatabaseKeyPage({
             disabled={controller.isBusy || !controller.state.saved}
             onClear={() => void controller.clearSavedKey()}
             onReplace={scrollToEditor}
+            onReturnToLogin={() => void controller.returnToLogin()}
           />
         </div>
       </div>

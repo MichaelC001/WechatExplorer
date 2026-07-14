@@ -20,6 +20,7 @@ export function SettingsWorkspace({
   onSelfInfoChange,
   onContactsChange,
   onFilteredContactsChange,
+  onReturnToLogin,
   onAIRuntimeChange,
   onNotice,
   onOpenSettings
@@ -34,6 +35,7 @@ export function SettingsWorkspace({
   onSelfInfoChange: (info: SettingsSelfInfo | null) => void
   onContactsChange: (contacts: Contact[]) => void
   onFilteredContactsChange: (contacts: Contact[]) => void
+  onReturnToLogin: () => void
   onAIRuntimeChange: (config: AIRuntimeModelConfig) => void
   onNotice: (message: string) => void
   onOpenSettings: () => void
@@ -64,6 +66,7 @@ export function SettingsWorkspace({
           onSelfInfoChange={onSelfInfoChange}
           onContactsChange={onContactsChange}
           onFilteredContactsChange={onFilteredContactsChange}
+          onReturnToLogin={onReturnToLogin}
           onNotice={onNotice}
         />
       ) : selectedCategory === 'image-key' ? (

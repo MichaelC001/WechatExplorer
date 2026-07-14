@@ -624,6 +624,25 @@ function App(): React.ReactElement {
     setDbKeyStatusKind('normal')
   }
 
+  const handleReturnToLogin = (): void => {
+    setIsAuthenticated(false)
+    setIsDatabaseConnected(false)
+    setBootState('login')
+    setActivePage('archive')
+    setSettingsCategory('database-key')
+    setSelectedContact(null)
+    setMessages([])
+    setContacts([])
+    setFilteredContacts([])
+    setSelfInfo(null)
+    setIsMessagesLoading(false)
+    setIsNativeMonitorActive(false)
+    setReportNotice('')
+    setDbKeyStatus('已断开当前连接，可重新输入或获取数据库密钥')
+    setDbKeyStatusKind('normal')
+    setStartupProgress(null)
+  }
+
   const getDateRangeParams = (
     range: string
   ): { startTime: number | undefined; endTime: number | undefined } => {
@@ -1140,6 +1159,7 @@ function App(): React.ReactElement {
             onSelfInfoChange={setSelfInfo}
             onContactsChange={setContacts}
             onFilteredContactsChange={setFilteredContacts}
+            onReturnToLogin={handleReturnToLogin}
             onAIRuntimeChange={(config: AIRuntimeModelConfig) => setAiModelConfig(config)}
             onNotice={setReportNotice}
             onOpenSettings={openSettings}

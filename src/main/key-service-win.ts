@@ -1,13 +1,13 @@
 // @ts-nocheck
 // Windows native bridge adapted from WeFlow. Koffi Win32 callbacks and optional
 // helpers are intentionally dynamic; keep this file isolated from strict TS.
-import { app } from 'electron'
 import { join, dirname, delimiter } from 'path'
 import { existsSync, copyFileSync, mkdirSync } from 'fs'
 import { execFile, spawn } from 'child_process'
 import { promisify } from 'util'
 import os from 'os'
 import crypto from 'crypto'
+import { getResourceRoots as getSharedResourceRoots } from './resource-paths'
 
 const execFileAsync = promisify(execFile)
 
@@ -69,14 +69,7 @@ export class KeyService {
   private readonly DB_KEY_PROCESS_CHECK_INTERVAL_MS = 1000
 
   private getResourceRoots(): string[] {
-    const roots = [
-      join(process.cwd(), 'resources'),
-      join(process.cwd(), 'resources', 'resources'),
-      join(process.resourcesPath || '', 'resources'),
-      process.resourcesPath || '',
-      join(app.getAppPath(), 'resources')
-    ]
-    return Array.from(new Set(roots.filter((root) => root && existsSync(root))))
+    return getSharedResourceRoots()
   }
 
   private getDllPath(): string {

@@ -14,6 +14,7 @@ export function useDatabaseKeyController({
   onSelfInfoChange,
   onContactsChange,
   onFilteredContactsChange,
+  onReturnToLogin,
   onNotice
 }: {
   dbKey: string
@@ -24,6 +25,7 @@ export function useDatabaseKeyController({
   onSelfInfoChange: (info: SettingsSelfInfo | null) => void
   onContactsChange: (contacts: Contact[]) => void
   onFilteredContactsChange: (contacts: Contact[]) => void
+  onReturnToLogin: () => void
   onNotice: (message: string) => void
 }): DatabaseKeyController {
   const [state, dispatch] = useReducer(databaseKeyReducer, initialDatabaseKeyState)
@@ -188,6 +190,26 @@ export function useDatabaseKeyController({
     refreshEnvironment
   ])
 
+  const returnToLogin = useCallback(async (): Promise<void> => {
+    const result = await window.api.disconnectDb()
+    if (!result.success) {
+      onNotice(result.error || '断开数据库连接失败')
+      return
+    }
+    onDatabaseConnectionChange(false)
+    onSelfInfoChange(null)
+    onContactsChange([])
+    onFilteredContactsChange([])
+    onReturnToLogin()
+  }, [
+    onContactsChange,
+    onDatabaseConnectionChange,
+    onFilteredContactsChange,
+    onNotice,
+    onReturnToLogin,
+    onSelfInfoChange
+  ])
+
   const copyDiagnostics = useCallback(async (): Promise<void> => {
     const result = await window.api.copyText(
       buildDatabaseKeyDiagnostics(state, dbKey, selfInfo, dbReady)
@@ -214,6 +236,7 @@ export function useDatabaseKeyController({
     saveKey,
     autoDetectKey,
     clearSavedKey,
+    returnToLogin,
     copyDiagnostics,
     refreshEnvironment
   }

@@ -4,6 +4,7 @@ import os from 'os'
 import crypto from 'crypto'
 import { createRequire } from 'module'
 import { createConnection, Socket } from 'net'
+import { getResourceRoots } from './resource-paths'
 
 export interface Wcdb4Session {
   username: string
@@ -81,14 +82,14 @@ export function bootstrapWcdbNative(libPath?: string, libDirOverride?: string): 
     resourcePath: string
   ) => number
   const resourceRoots = Array.from(
-    new Set([
-      libDir,
-      path.dirname(libDir),
-      process.env.WCDB_RESOURCES_PATH || '',
-      path.join(process.resourcesPath || process.cwd(), 'resources'),
-      process.resourcesPath || process.cwd(),
-      path.join(process.cwd(), 'resources')
-    ])
+    new Set(
+      [
+        libDir,
+        path.dirname(libDir),
+        process.env.WCDB_RESOURCES_PATH || '',
+        ...getResourceRoots()
+      ].filter(Boolean)
+    )
   )
   let lastCode = -1
   let initOk = false
@@ -1330,14 +1331,14 @@ export class Wcdb4Client {
     ) => number
 
     const resourceRoots = Array.from(
-      new Set([
-        libDir,
-        path.dirname(libDir),
-        process.env.WCDB_RESOURCES_PATH || '',
-        path.join(process.resourcesPath || process.cwd(), 'resources'),
-        process.resourcesPath || process.cwd(),
-        path.join(process.cwd(), 'resources')
-      ])
+      new Set(
+        [
+          libDir,
+          path.dirname(libDir),
+          process.env.WCDB_RESOURCES_PATH || '',
+          ...getResourceRoots()
+        ].filter(Boolean)
+      )
     )
 
     let lastCode = -1
@@ -1373,19 +1374,21 @@ export class Wcdb4Client {
           ? 'libwcdb_api.so'
           : 'wcdb_api.dll'
     const platformDir =
-      process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'win32' : process.platform
+      process.platform === 'darwin'
+        ? 'macos'
+        : process.platform === 'win32'
+          ? 'win32'
+          : process.platform
     const archDir = process.arch === 'arm64' ? 'arm64' : 'x64'
-    const resourcesPath = process.resourcesPath || process.cwd()
+    const resourceRoots = getResourceRoots()
     const candidates = [
       process.env.WCDB_DLL_PATH,
-      path.join(resourcesPath, 'resources', 'wcdb', platformDir, archDir, libName),
-      path.join(resourcesPath, 'resources', 'wcdb', platformDir, 'x64', libName),
-      path.join(process.cwd(), 'resources', 'wcdb', platformDir, archDir, libName),
-      path.join(process.cwd(), 'resources', 'wcdb', platformDir, 'x64', libName),
-      path.join(resourcesPath, 'resources', platformDir, libName),
-      path.join(resourcesPath, 'resources', libName),
-      path.join(process.cwd(), 'resources', platformDir, libName),
-      path.join(process.cwd(), 'resources', libName)
+      ...resourceRoots.flatMap((root) => [
+        path.join(root, 'wcdb', platformDir, archDir, libName),
+        path.join(root, 'wcdb', platformDir, 'x64', libName),
+        path.join(root, platformDir, libName),
+        path.join(root, libName)
+      ])
     ].filter(Boolean) as string[]
 
     const found = candidates.find((candidate) => fs.existsSync(candidate))
@@ -1393,9 +1396,13 @@ export class Wcdb4Client {
       throw new Error(`找不到 WCDB native 库: ${candidates.join(', ')}`)
     }
     if (process.platform === 'win32') {
-      const runtimeDir = path.join(resourcesPath, 'resources', 'runtime', 'win32')
+      const runtimeDir = resourceRoots
+        .map((root) => path.join(root, 'runtime', 'win32'))
+        .find((candidate) => fs.existsSync(candidate))
       const dllDir = path.dirname(found)
-      process.env.PATH = [dllDir, runtimeDir, process.env.PATH || ''].filter(Boolean).join(path.delimiter)
+      process.env.PATH = [dllDir, runtimeDir || '', process.env.PATH || '']
+        .filter(Boolean)
+        .join(path.delimiter)
     }
     return found
   }

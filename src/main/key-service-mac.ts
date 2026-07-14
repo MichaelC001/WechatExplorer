@@ -5,6 +5,7 @@ import path from 'path'
 import { promisify } from 'util'
 import { isValidDatabaseKey } from './database-key-store'
 import crypto from 'crypto'
+import { findResource, getResourceCandidates } from './resource-paths'
 
 const execFileAsync = promisify(execFile)
 
@@ -25,33 +26,10 @@ export interface ImageKeyResult {
 
 export class KeyServiceMac {
   private getHelperPath(): string {
-    // 多 candidate fallback:覆盖 extraResources、asarUnpack、dev 三种场景
-    // (extraResources → Contents/Resources/resources/;asarUnpack 同路径;dev → cwd 或 app.getAppPath)
-    const candidates = [
-      // 1) extraResources 标准位置(electron-builder.yml 配的就是这个)
-      path.join(process.resourcesPath, 'resources', 'xkey_helper'),
-      // 2) process.resourcesPath 直接(防止 extraResources 没复制成功)
-      path.join(process.resourcesPath, 'xkey_helper'),
-      // 3) asarUnpack 路径(如果在 asar 内的 resources/ 被解包到 app.asar.unpacked)
-      path.join(app.getAppPath(), 'app.asar.unpacked', 'resources', 'xkey_helper'),
-      // 4) dev 模式 + 打包后某些版本 app.getAppPath() 也指向 .app 根目录
-      path.join(app.getAppPath(), 'resources', 'xkey_helper'),
-      // 5) dev 模式:cwd
-      path.join(process.cwd(), 'resources', 'xkey_helper')
-    ].filter((p, idx, arr) => arr.indexOf(p) === idx) // 去重
-
-    // 诊断:即使命中也打 log,方便排查"装了但找不到"的问题(translocation / quarantine)
-    const statusList = candidates.map((candidate) => ({
-      path: candidate,
-      exists: fs.existsSync(candidate)
-    }))
-    console.log('[KeyServiceMac] xkey_helper candidates:', JSON.stringify(statusList))
-    const helperPath = candidates.find((candidate) => fs.existsSync(candidate))
+    const helperPath = findResource('xkey_helper')
     if (!helperPath) {
       throw new Error(
-        `找不到 xkey_helper(尝试 ${candidates.length} 个路径;` +
-          ` app.isPackaged=${app.isPackaged} resourcesPath=${process.resourcesPath} ` +
-          ` appPath=${app.getAppPath()} cwd=${process.cwd()})`
+        `找不到 xkey_helper（已检查：${getResourceCandidates('xkey_helper').join('；')}）`
       )
     }
     return helperPath
@@ -163,7 +141,7 @@ export class KeyServiceMac {
         'return "ERR::" & errNum & "::" & errMsg',
         'end try'
       ]
-      onStatus?.('授权后请保持微信已登录并活动...')
+      onStatus?.('授权后请保持微信登录界面 并点击登录微信...')
       const { stdout } = await execFileAsync(
         '/usr/bin/osascript',
         scriptLines.flatMap((line) => ['-e', line]),
@@ -207,7 +185,8 @@ export class KeyServiceMac {
 
         const orderedWxids: string[] = []
         this.pushAccountIdCandidates(orderedWxids, path.basename(candidateAccountPath))
-        for (const candidate of wxidCandidates) this.pushAccountIdCandidates(orderedWxids, candidate)
+        for (const candidate of wxidCandidates)
+          this.pushAccountIdCandidates(orderedWxids, candidate)
 
         onStatus?.(`正在校验候选 wxid（${orderedWxids.length} 个）...`)
         for (const candidateWxid of orderedWxids) {
@@ -255,20 +234,33 @@ export class KeyServiceMac {
   private getKvcommCandidates(accountPath?: string): string[] {
     const home = app.getPath('home')
     const candidates = new Set<string>([
-      path.join(home, 'Library/Containers/com.tencent.xinWeChat/Data/Documents/app_data/net/kvcomm'),
-      path.join(home, 'Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/xwechat/net/kvcomm'),
-      path.join(home, 'Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/net/kvcomm'),
+      path.join(
+        home,
+        'Library/Containers/com.tencent.xinWeChat/Data/Documents/app_data/net/kvcomm'
+      ),
+      path.join(
+        home,
+        'Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/xwechat/net/kvcomm'
+      ),
+      path.join(
+        home,
+        'Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/net/kvcomm'
+      ),
       path.join(home, 'Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat/net/kvcomm')
     ])
 
-    const normalized = String(accountPath || '').replace(/\\/g, '/').replace(/\/+$/, '')
+    const normalized = String(accountPath || '')
+      .replace(/\\/g, '/')
+      .replace(/\/+$/, '')
     const marker = '/xwechat_files'
     const markerIndex = normalized.indexOf(marker)
     if (markerIndex >= 0) {
       candidates.add(`${normalized.slice(0, markerIndex)}/app_data/net/kvcomm`)
     }
 
-    const newPathMatch = normalized.match(/^(.*\/com\.tencent\.xinWeChat\/(?:\d+\.\d+b\d+\.\d+|\d+\.\d+\.\d+))/)
+    const newPathMatch = normalized.match(
+      /^(.*\/com\.tencent\.xinWeChat\/(?:\d+\.\d+b\d+\.\d+|\d+\.\d+\.\d+))/
+    )
     if (newPathMatch) {
       candidates.add(`${newPathMatch[1]}/net/kvcomm`)
       candidates.add(`${newPathMatch[1]}/xwechat/net/kvcomm`)
@@ -281,7 +273,9 @@ export class KeyServiceMac {
     const candidates: string[] = []
     this.pushAccountIdCandidates(candidates, wxidParam)
 
-    const normalized = String(accountPath || '').replace(/\\/g, '/').replace(/\/+$/, '')
+    const normalized = String(accountPath || '')
+      .replace(/\\/g, '/')
+      .replace(/\/+$/, '')
     if (normalized) {
       this.pushAccountIdCandidates(candidates, path.basename(normalized))
       const root = this.resolveXwechatRootFromPath(normalized)
@@ -290,7 +284,8 @@ export class KeyServiceMac {
           for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
             if (!entry.isDirectory()) continue
             const entryPath = path.join(root, entry.name)
-            if (this.isAccountDirPath(entryPath)) this.pushAccountIdCandidates(candidates, entry.name)
+            if (this.isAccountDirPath(entryPath))
+              this.pushAccountIdCandidates(candidates, entry.name)
           }
         } catch {
           // Ignore unreadable directories.
@@ -316,7 +311,8 @@ export class KeyServiceMac {
         for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
           if (!entry.isDirectory()) continue
           const entryPath = path.join(root, entry.name)
-          if (this.isAccountDirPath(entryPath) && this.isReasonableAccountId(entry.name)) push(entryPath)
+          if (this.isAccountDirPath(entryPath) && this.isReasonableAccountId(entry.name))
+            push(entryPath)
         }
       } catch {
         // Ignore unreadable directories.
@@ -326,12 +322,16 @@ export class KeyServiceMac {
   }
 
   private resolveXwechatRootFromPath(accountPath?: string): string | null {
-    const normalized = String(accountPath || '').replace(/\\/g, '/').replace(/\/+$/, '')
+    const normalized = String(accountPath || '')
+      .replace(/\\/g, '/')
+      .replace(/\/+$/, '')
     if (!normalized) return null
     const marker = '/xwechat_files'
     const markerIndex = normalized.indexOf(marker)
     if (markerIndex >= 0) return normalized.slice(0, markerIndex + marker.length)
-    const newPathMatch = normalized.match(/^(.*\/com\.tencent\.xinWeChat\/(?:\d+\.\d+b\d+\.\d+|\d+\.\d+\.\d+))(\/|$)/)
+    const newPathMatch = normalized.match(
+      /^(.*\/com\.tencent\.xinWeChat\/(?:\d+\.\d+b\d+\.\d+|\d+\.\d+\.\d+))(\/|$)/
+    )
     return newPathMatch ? newPathMatch[1] : null
   }
 
@@ -366,7 +366,9 @@ export class KeyServiceMac {
   }
 
   private isReasonableAccountId(value: string): boolean {
-    const lowered = String(value || '').trim().toLowerCase()
+    const lowered = String(value || '')
+      .trim()
+      .toLowerCase()
     if (!lowered || lowered.includes('/') || lowered.includes('\\')) return false
     return !['xwechat_files', 'all_users', 'backup', 'wmpf', 'app_data'].includes(lowered)
   }

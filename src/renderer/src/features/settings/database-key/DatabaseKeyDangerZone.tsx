@@ -3,15 +3,30 @@ import { useState } from 'react'
 export function DatabaseKeyDangerZone({
   disabled,
   onClear,
-  onReplace
+  onReplace,
+  onReturnToLogin
 }: {
   disabled: boolean
   onClear: () => void
   onReplace: () => void
+  onReturnToLogin: () => void
 }): React.ReactElement {
   const [confirming, setConfirming] = useState(false)
+  const [confirmingReturn, setConfirmingReturn] = useState(false)
   return (
     <>
+      <section className="database-key-connection-actions">
+        <h2>连接管理</h2>
+        <div>
+          <span>
+            <strong>返回登录界面</strong>
+            <small>断开当前数据库连接，回到密钥输入界面。不会删除已保存密钥或微信数据。</small>
+          </span>
+          <button type="button" onClick={() => setConfirmingReturn(true)}>
+            返回登录
+          </button>
+        </div>
+      </section>
       <section className="database-key-danger">
         <h2>密钥管理</h2>
         <div>
@@ -64,6 +79,41 @@ export function DatabaseKeyDangerZone({
                 }}
               >
                 清除密钥
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmingReturn && (
+        <div
+          className="database-key-confirm-backdrop"
+          role="presentation"
+          onMouseDown={() => setConfirmingReturn(false)}
+        >
+          <div
+            className="database-key-confirm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="database-key-return-confirm-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <h2 id="database-key-return-confirm-title">返回登录界面？</h2>
+            <p>
+              WechatExplorer
+              将断开当前数据库连接并回到密钥输入界面。已保存的数据库密钥和微信原始数据不会被删除。
+            </p>
+            <div>
+              <button type="button" onClick={() => setConfirmingReturn(false)}>
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmingReturn(false)
+                  onReturnToLogin()
+                }}
+              >
+                返回登录
               </button>
             </div>
           </div>

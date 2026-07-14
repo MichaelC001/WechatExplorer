@@ -59,6 +59,7 @@ export interface DatabaseKeyController {
   saveKey: () => Promise<void>
   autoDetectKey: () => Promise<void>
   clearSavedKey: () => Promise<void>
+  returnToLogin: () => Promise<void>
   copyDiagnostics: () => Promise<void>
   refreshEnvironment: () => Promise<void>
 }
