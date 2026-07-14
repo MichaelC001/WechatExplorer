@@ -6,3 +6,7 @@ out
 .eslintcache
 *.log*
 .omc
+.codex/
+docs/design/
+docs/ui-redesign-plan.md
+docs/ui-redesign-spec.md
