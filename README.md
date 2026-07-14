@@ -30,19 +30,29 @@ macOS / Windows 微信聊天记录查看，AI 一键生成群聊总结。
 
 ## 📸 预览
 
-### 群聊总结长图
+### 日报模板
 
-<img src="./public/example1.png" alt="总结图片" />
+<details>
+  <summary>点击查看完整日报模板</summary>
+  <br />
+  <img src="./public/report-template-1.png" alt="完整日报模板" />
+</details>
 
-### 软件主页面
+### AI 群聊日报界面
 
-<img src="./public/example2.png" alt="软件主页面" />
+<img src="./public/software-1.png" alt="AI 群聊日报页面" />
+
+### 本地 API 与 Reader Skill
+
+<img src="./public/software-2.png" alt="本地 API 与 Reader Skill 页面" />
 
 ## [点击这里下载](https://github.com/Wxw-Gu/WechatExplorer/releases)
 
 ## 📦 安装说明
 
-### macOS 版本已测4.1.8
+### macOS 版本已测 4.1.8
+
+> 微信 macOS `4.1.8.100` 下载地址：[wechat-versions v4.1.8.100](https://github.com/zsbai/wechat-versions/releases/tag/4.1.8.100)
 
 1. 下载 Releases 中的 `xxx.dmg` 文件。
 2. 打开 DMG 并将应用拖动到 **Applications** (应用程序) 文件夹。
@@ -50,13 +60,15 @@ macOS / Windows 微信聊天记录查看，AI 一键生成群聊总结。
    `系统设置 -> 隐私与安全性 -> 仍要打开`。
 4. 打开微信登录界面不要登录，然后点击获取密钥，提示登录 然后点击登录 自动获取密钥
 
-### Windows 版本已测4.1.9
+### Windows 版本已测 4.1.9
+
+> 微信 Windows `4.1.9.57` 下载地址：[wechat-win-archive v4.1.9.57](https://github.com/iibob/wechat-win-archive/releases#release-v4.1.9.57)
 
 1. 下载 Releases 中的 `xxx-setup.exe` 安装包。
 2. 双击安装，可按安装向导选择安装目录。
 3. 打开微信登录界面不要登录，然后点击获取密钥，提示登录 然后点击登录 自动获取密钥。
 
-> Windows 支持仍处于初步阶段。如果自动获取密钥失败，请先确认微信客户端已登录并保持运行；不同微信安装路径、数据目录和权限环境可能仍需要继续适配。
+> Windows 支持仍处于初步阶段。软件会有些卡顿, 如果自动获取密钥失败，请先确认微信客户端已登录并保持运行；不同微信安装路径、数据目录和权限环境可能仍需要继续适配。
 
 ## 🚀 快速开始
 
@@ -106,6 +118,7 @@ WechatExplorer 内置了一个本地 HTTP API 服务，默认监听 `127.0.0.1:6
 ### 启用本地 API
 
 API 服务在 WechatExplorer 启动时自动启用，**不需要任何配置**。只需要：
+
 1. 安装并启动 WechatExplorer
 2. 完成首次密钥配置（主窗口第一步），解锁 WCDB 数据库
 3. API 即在 `http://127.0.0.1:6131` 可用
@@ -121,37 +134,42 @@ WXE_TRAY=1 open /Applications/WechatExplorer.app
 ```
 
 启用后：
+
 - macOS dock 图标自动隐藏
 - 菜单栏出现 WechatExplorer 图标（可点击重新打开主窗口、查看 API 状态）
 - 主窗口关闭后 API 服务继续运行
 
 ### API 端点一览
 
-| 端点 | 说明 |
-|------|------|
-| `GET /api/v1/health` | 健康检查 |
-| `GET /api/v1/current_time` | 获取当前本地时间（用于"今天/昨天"换算） |
-| `GET /api/v1/contact?filter=xxx` | 联系人 / 群聊列表 |
-| `GET /api/v1/chatroom?keyword=xxx` | 搜索群聊 |
-| `GET /api/v1/chatlog?talker=xxx&time=2026-07-03` | 聊天记录 |
-| `GET /api/v1/group_snapshot?md5=xxx` | 群成员快照 |
-| `GET /api/v1/resolve?q=群昵称` | 把昵称/wxid/md5 解析成 md5 |
+| 端点                                             | 说明                                    |
+| ------------------------------------------------ | --------------------------------------- |
+| `GET /api/v1/health`                             | 健康检查                                |
+| `GET /api/v1/current_time`                       | 获取当前本地时间（用于"今天/昨天"换算） |
+| `GET /api/v1/contact?filter=xxx`                 | 联系人 / 群聊列表                       |
+| `GET /api/v1/chatroom?keyword=xxx`               | 搜索群聊                                |
+| `GET /api/v1/chatlog?talker=xxx&time=2026-07-03` | 聊天记录                                |
+| `GET /api/v1/group_snapshot?md5=xxx`             | 群成员快照                              |
+| `GET /api/v1/resolve?q=群昵称`                   | 把昵称/wxid/md5 解析成 md5              |
 
 详细参数、返回结构、时间格式见 [`docs/skill/wechatexplorer-reader/SKILL.md`](./docs/skill/wechatexplorer-reader/SKILL.md)。
 
-### 让 Claude 自动总结你的群聊
+### 安装 Reader Skill，让 Agent 读取和总结群聊
 
-复制 [`docs/skill/wechatexplorer-reader/SKILL.md`](./docs/skill/wechatexplorer-reader/SKILL.md) 到 `~/.claude/skills/`，然后在 Claude Desktop 里说：
+WechatExplorer 已内置 **Reader Skill**，无需手动复制仓库中的 `SKILL.md`：
 
-> "今天 技术交流群 聊了啥？"
+1. 启动 WechatExplorer，并确认数据库已连接、本地 API 已运行。
+2. 打开应用内的 **API** 页面。
+3. 在“快速接入”中选择 **Codex** 或 **Claude Code**。
+4. 点击复制安装指令，将指令粘贴给对应的 Agent 执行。
+5. 安装完成后，可以直接向 Agent 提问：
 
-Claude 会自动：
-1. 调 `current_time` 拿到今天日期
-2. 调 `chatroom` 找到目标群
-3. 调 `chatlog` 拿 JSON 聊天记录
-4. 自己用 LLM 生成总结报告
+> “今天技术交流群聊了什么？”
 
-### curl 示例
+Reader Skill 会自动获取本机时间、定位目标群聊、读取所需聊天记录，并结合上下文生成总结。详细接口说明仍可查看 [`docs/skill/wechatexplorer-reader/SKILL.md`](./docs/skill/wechatexplorer-reader/SKILL.md)。
+
+### curl 调试示例（可选）
+
+不使用 Agent 时，也可以通过 `curl` 直接调试本地 HTTP API：
 
 ```bash
 # 健康检查
@@ -171,7 +189,7 @@ curl -G "http://127.0.0.1:6131/api/v1/resolve" \
 
 本项目仅供学习和研究使用。请勿用于非法用途。开发者不对使用本项目造成的任何后果负责。请遵守相关法律法规和微信使用协议。
 
-## 🔗 参考
+## 🔗 参考致谢
 
 - [WechatMessageExplorer](https://github.com/svcvit/WechatMessageExplorer)
 - [WeFlow](https://github.com/hicccc77/WeFlow)
