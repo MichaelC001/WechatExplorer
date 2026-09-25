@@ -2735,9 +2735,36 @@ export class Wcdb4Client {
       const rows = this.callJson<Record<string, unknown>[]>((handle, outJson) =>
         this.wcdbExecQuery!(handle, 'contact', '', sql, outJson)
       )
-      return rows?.[0] ? normalizeRoomInfoRow(chatroomId, rows[0]) : null
+      const base = rows?.[0] ? normalizeRoomInfoRow(chatroomId, rows[0]) : null
+      return this.mergeChatRoomInfoDetail(chatroomId, base)
     } catch {
       return null
+    }
+  }
+
+  private mergeChatRoomInfoDetail(chatroomId: string, base: RoomInfoRow | null): RoomInfoRow | null {
+    if (!this.wcdbExecQuery) return base
+    const escaped = chatroomId.replace(/'/g, "''")
+    const sql = `SELECT * FROM chat_room_info_detail WHERE username_ = '${escaped}' LIMIT 1`
+    try {
+      const rows = this.callJson<Record<string, unknown>[]>((handle, outJson) =>
+        this.wcdbExecQuery!(handle, 'contact', '', sql, outJson)
+      )
+      const row = rows?.[0]
+      if (!row) return base
+      return {
+        roomId: chatroomId,
+        owner: base?.owner,
+        announcement: pickString(row, ['announcement_', 'announcement']) || base?.announcement,
+        announcementEditor:
+          pickString(row, ['announcement_editor_', 'announcement_editor']) || base?.announcementEditor,
+        maxMemberCount: base?.maxMemberCount,
+        chatName: base?.chatName,
+        openImAccountType: base?.openImAccountType,
+        isOpenIm: base?.isOpenIm
+      }
+    } catch {
+      return base
     }
   }
 
@@ -2756,6 +2783,27 @@ export class Wcdb4Client {
     } catch (error) {
       console.warn('[WCDB4] getRoomInfoAsync failed:', error)
       return null
+    }
+  }
+
+  /** 只读好友申请（general.db / FMessageTable）。 */
+  async listFMessageItems(limit = 200): Promise<Record<string, unknown>[]> {
+    if (!this.wcdbExecQuery) return []
+    const sql = `SELECT user_name_, type_, timestamp_, content_, is_sender_, scene_, remark_, label_ids_ FROM FMessageTable ORDER BY timestamp_ DESC LIMIT ${Math.max(
+      1,
+      Math.min(1000, limit)
+    )}`
+    try {
+      const rows = await this.callJsonAsync<Record<string, unknown>[]>(
+        this.wcdbExecQuery as unknown as KoffiAsyncFunction,
+        'contact',
+        path.join(this.accountRoot, 'db_storage/general/general.db'),
+        sql
+      )
+      return Array.isArray(rows) ? rows : []
+    } catch (error) {
+      console.warn('[WCDB4] listFMessageItems failed:', error)
+      return []
     }
   }
 

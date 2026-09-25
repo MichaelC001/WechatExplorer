@@ -42,6 +42,8 @@ export interface ExportRequest {
   includeFavorites?: boolean
   /** 合并朋友圈时间线（sns.db）只读卡片。 */
   includeSnsTimeline?: boolean
+  /** 合并好友申请（general.db FMessageTable）。 */
+  includeFMessage?: boolean
   preferOriginal?: boolean
   fallbackThumbnail?: boolean
   keepMissing?: boolean
