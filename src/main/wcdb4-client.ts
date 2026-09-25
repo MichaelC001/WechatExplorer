@@ -2759,6 +2759,27 @@ export class Wcdb4Client {
     }
   }
 
+  /** 只读朋友圈时间线（sns.db / SnsTimeLine）。 */
+  async listSnsTimeline(limit = 200): Promise<Record<string, unknown>[]> {
+    if (!this.wcdbExecQuery) return []
+    const sql = `SELECT tid, user_name, content, pack_info_buf FROM SnsTimeLine ORDER BY tid DESC LIMIT ${Math.max(
+      1,
+      Math.min(1000, limit)
+    )}`
+    try {
+      const rows = await this.callJsonAsync<Record<string, unknown>[]>(
+        this.wcdbExecQuery as unknown as KoffiAsyncFunction,
+        'sns',
+        path.join(this.accountRoot, 'db_storage/sns/sns.db'),
+        sql
+      )
+      return Array.isArray(rows) ? rows : []
+    } catch (error) {
+      console.warn('[WCDB4] listSnsTimeline failed:', error)
+      return []
+    }
+  }
+
   /** 只读列收藏（favorite.db / fav_db_item），供导出与搜索。 */
   async listFavoriteItems(limit = 200): Promise<Record<string, unknown>[]> {
     if (!this.wcdbExecQuery) return []

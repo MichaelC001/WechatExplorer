@@ -26,6 +26,7 @@ import type { VoiceRecognitionUseCase } from './voice-pipeline/voice-recognition
 import { imageFileQuality } from '../shared/image-quality'
 import { resolveMemberName } from '../shared/member-names'
 import { FavoritesService } from './favorites-service'
+import { SnsTimelineService } from './sns-timeline-service'
 import { filesystemSafeName } from '../shared/contact-name'
 
 const jobs = new Set<string>()
@@ -873,6 +874,28 @@ async function runSingleExport(
           }
         } catch (error) {
           console.warn('[export] favorites merge skipped:', error)
+        }
+      }
+    }
+    if (request.includeSnsTimeline) {
+      const wcdb = chat.getChatDb()?.getWcdb4Client()
+      if (wcdb) {
+        try {
+          const snsMessages = await new SnsTimelineService(wcdb).listExportMessages(500)
+          for (const [messageOrder, message] of snsMessages.entries()) {
+            if (!request.kinds.includes(kindOf(message))) continue
+            messageEntries.push({
+              message: {
+                ...message,
+                exportConversationId: 'sns',
+                exportConversationName: '朋友圈'
+              },
+              targetOrder: targets.length + 1,
+              messageOrder
+            })
+          }
+        } catch (error) {
+          console.warn('[export] sns merge skipped:', error)
         }
       }
     }
