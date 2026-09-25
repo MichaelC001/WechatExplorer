@@ -23,6 +23,21 @@ export type SnsTimelinePost = {
   mediaCount?: number
   url?: string
   raw?: string
+  /** `SnsMessage_tmp3` 评论（type=2）。 */
+  comments?: SnsTimelineComment[]
+  /** 点赞数（type=1）。 */
+  likeCount?: number
+}
+
+/** `SnsMessage_tmp3` 单条（只读；type 1=赞，2=评论）。 */
+export type SnsTimelineComment = {
+  type?: number
+  feedId?: string | number
+  fromNickname?: string
+  toNickname?: string
+  content?: string
+  createTime?: number
+  delStatus?: number
 }
 
 function xmlValue(xml: string, tag: string): string | undefined {
@@ -90,4 +105,29 @@ export function snsRowToContent(row: SnsTimelineRecord): {
 export function snsTextOf(row: SnsTimelineRecord): string {
   const mapped = snsRowToContent(row)
   return mapped.type === 'text' ? mapped.content || '' : mapped.title || ''
+}
+
+/** `SnsMessage_tmp3` 行 → 评论/赞。 */
+export function parseSnsMessageRow(row: Record<string, unknown>): SnsTimelineComment {
+  const type = Number(row.type)
+  return {
+    type: Number.isFinite(type) ? type : undefined,
+    feedId: (row.feed_id ?? row.feedId) as string | number | undefined,
+    fromNickname: row.from_nickname ? String(row.from_nickname) : undefined,
+    toNickname: row.to_nickname ? String(row.to_nickname) : undefined,
+    content: row.content ? String(row.content) : undefined,
+    createTime: Number(row.create_time) || undefined,
+    delStatus: Number(row.del_status) || 0
+  }
+}
+
+/** 正文 + 评论摘要，便于导出/搜索。 */
+export function snsPostDisplayText(post: SnsTimelinePost): string {
+  const comments = (post.comments || [])
+    .filter((c) => (c.type ?? 2) === 2 && c.content && !c.delStatus)
+    .slice(0, 8)
+    .map((c) => `${c.fromNickname || '朋友'}：${c.content}`)
+  const like = post.likeCount ? `（${post.likeCount} 赞）` : ''
+  const head = post.text || '[朋友圈]'
+  return comments.length ? `${head}${like}\n${comments.join('\n')}` : `${head}${like}`
 }

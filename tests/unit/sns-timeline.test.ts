@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { parseSnsTimelineXml, snsRowToContent } from '../../src/shared/sns-timeline'
+import {
+  parseSnsMessageRow,
+  parseSnsTimelineXml,
+  snsPostDisplayText,
+  snsRowToContent
+} from '../../src/shared/sns-timeline'
 
 describe('sns timeline parse', () => {
   it('parses TimelineObject contentDesc into text', () => {
@@ -37,5 +42,21 @@ describe('sns timeline parse', () => {
       url: 'https://example.com/a',
       typeVal: 'sns'
     })
+  })
+
+  it('attaches SnsMessage comments and like counts to display text', () => {
+    const post = parseSnsTimelineXml(
+      '<SnsDataItem><TimelineObject><createTime>1789700166</createTime><contentDesc>正文</contentDesc></TimelineObject></SnsDataItem>'
+    )
+    post.comments = [
+      parseSnsMessageRow({ type: 2, feed_id: 1, from_nickname: 'A', content: '不错', del_status: 0 }),
+      parseSnsMessageRow({ type: 2, feed_id: 1, from_nickname: 'B', content: '已删', del_status: 1 })
+    ]
+    post.likeCount = 3
+    const text = snsPostDisplayText(post)
+    expect(text).toContain('正文')
+    expect(text).toContain('（3 赞）')
+    expect(text).toContain('A：不错')
+    expect(text).not.toContain('已删')
   })
 })

@@ -2759,6 +2759,27 @@ export class Wcdb4Client {
     }
   }
 
+  /** 只读朋友圈评论/赞（sns.db / SnsMessage_tmp3）。 */
+  async listSnsMessages(limit = 500): Promise<Record<string, unknown>[]> {
+    if (!this.wcdbExecQuery) return []
+    const sql = `SELECT local_id, create_time, type, feed_id, from_nickname, to_nickname, content, comment_id, del_status FROM SnsMessage_tmp3 ORDER BY create_time DESC LIMIT ${Math.max(
+      1,
+      Math.min(2000, limit)
+    )}`
+    try {
+      const rows = await this.callJsonAsync<Record<string, unknown>[]>(
+        this.wcdbExecQuery as unknown as KoffiAsyncFunction,
+        'sns',
+        path.join(this.accountRoot, 'db_storage/sns/sns.db'),
+        sql
+      )
+      return Array.isArray(rows) ? rows : []
+    } catch (error) {
+      console.warn('[WCDB4] listSnsMessages failed:', error)
+      return []
+    }
+  }
+
   /** 只读朋友圈时间线（sns.db / SnsTimeLine）。 */
   async listSnsTimeline(limit = 200): Promise<Record<string, unknown>[]> {
     if (!this.wcdbExecQuery) return []
