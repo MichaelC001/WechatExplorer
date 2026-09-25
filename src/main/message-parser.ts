@@ -1,3 +1,5 @@
+import { describeRedPacketStatus, describeTransferStatus } from '../shared/payment-status'
+
 type TextContent = { type: 'text'; content: string }
 type VoiceContent = { type: 'voice'; duration?: number }
 type LocationContent = {
@@ -22,6 +24,44 @@ type ShareContent = {
   appname?: string
   typeVal?: string
   articles?: ShareArticle[]
+  transfer?: TransferPaymentInfo
+}
+
+type TransferPaymentInfo = {
+  paySubtype?: string
+  amountText?: string
+  transcationId?: string
+  transferId?: string
+  invalidTime?: string
+  beginTransferTime?: string
+  effectiveDate?: string
+  payMemo?: string
+  receiverUsername?: string
+  payerUsername?: string
+  transferStatus?: string
+  /** `transfer_status` 展示文案（只读）。 */
+  transferStatusText?: string
+  transId?: string
+  feeType?: string
+  transferAttach?: string
+  refundBankType?: string
+}
+
+type RedPacketPaymentInfo = {
+  templateId?: string
+  receiveTitle?: string
+  sendTitle?: string
+  sceneText?: string
+  senderDes?: string
+  receiverDes?: string
+  iconUrl?: string
+  nativeUrl?: string
+  sendId?: string
+  hbType?: string
+  hbStatus?: string
+  receiveStatus?: string
+  /** `hb_status` / `receive_status` 展示文案（只读）。 */
+  redPacketStatusText?: string
 }
 type ForwardedMessageItem = {
   messageType: number
@@ -51,6 +91,7 @@ type RedPacketContent = {
   title: string
   description?: string
   url?: string
+  pay?: RedPacketPaymentInfo
 }
 type VoipContent = { type: 'voip'; duration?: number; status: string; roomType?: number }
 type ImageContent = {
@@ -122,21 +163,48 @@ export type ParsedContent =
   | SystemContent
   | UnknownContent
 
+/**
+ * `local_type` 可能是打包 u64：低 32 位为类型枚举，高 32 位为标志/子类型。
+ */
+export function normalizeLocalType(messageType: number | string): number {
+  try {
+    const value =
+      typeof messageType === 'number'
+        ? BigInt(Math.trunc(messageType))
+        : BigInt(String(messageType).trim())
+    return Number(value & 0xffffffffn)
+  } catch {
+    const fallback = Number(messageType)
+    return Number.isFinite(fallback) ? Math.trunc(fallback) : 0
+  }
+}
+
 export function parseMessageContent(content: string, messageType: number): ParsedContent {
-  // Voice rows may keep their binary payload outside msgContent, so an empty
+  const localType = normalizeLocalType(messageType)
   // content string is still a valid voice message.
-  if (messageType === 34) return { type: 'voice' }
+  if (localType === 34) {
+    const duration = parseVoiceDurationSeconds(content)
+    return duration === undefined ? { type: 'voice' } : { type: 'voice', duration }
+  }
   if (!content || typeof content !== 'string') {
     return { type: 'unknown', raw: content || '' }
   }
 
   const normalized = content.trim()
 
-  switch (messageType) {
+  switch (localType) {
     case 1:
       return { type: 'text', content: normalized }
+    case 2:
+      return parseLegacyType2(normalized)
     case 3:
       return parseImageMessage(normalized)
+    case 8:
+      return parseLegacyType8(normalized)
+    case 17:
+      return parseForwardBundle(normalized)
+    case 37:
+      return parseFriendVerifyMessage(normalized)
     case 42:
       return parseCardMessage(normalized)
     case 43:
@@ -153,8 +221,35 @@ export function parseMessageContent(content: string, messageType: number): Parse
     case 10002:
       return parseSystemMessage(normalized)
     default:
-      return { type: 'unknown', raw: normalized, messageType }
+      return { type: 'unknown', raw: normalized, messageType: localType }
   }
+}
+
+/**
+ * 语音时长藏在解压后的 message_content 里：`<voicemsg ... voicelength="1600" ...>`，单位毫秒。
+ * Msg_* 表没有 voice_length 列，这是唯一来源。
+ *
+ * `<voicemsg>` 上两个极易混淆的属性（真机实测，同一条 1.6 秒语音，2026-09-20）：
+ *
+ *   - `voicelength="1600"` → **毫秒时长**。这条语音微信气泡显示 2"（1.6 秒四舍五入）。
+ *     **要取的是它。**
+ *   - `length="6672"` → **SILK 编码数据的字节数，与时长无关**。
+ *     已验证：`wcdb_get_voice_data` 取出的 SILK 恰好是 6672 字节，
+ *     解码后为 51200 字节 PCM（1.6 秒）。误取它会算出 6.672 秒，把 2" 显示成 0:07。
+ *
+ * 换算成秒后**刻意保留小数**（1600ms → 1.6）：在这里取整会把精度永久丢掉，
+ * 后面显示层再怎么四舍五入都对不回微信的口径（微信是四舍五入到整秒）。
+ *
+ * 注：`<videomsg length="...">` 的 `length` 同理是字节数，不是时长。
+ */
+function parseVoiceDurationSeconds(content: string): number | undefined {
+  if (!content || typeof content !== 'string') return undefined
+  const decoded = decodeXmlEntities(stripChatroomPrefix(content))
+  const rawLength = extractXmlAttribute(decoded, 'voicemsg', 'voicelength')
+  if (!rawLength) return undefined
+  const milliseconds = Number(rawLength)
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return undefined
+  return milliseconds / 1000
 }
 
 function parseVideoMessage(content: string): ParsedContent {
@@ -181,6 +276,14 @@ function parseSystemMessage(content: string): ParsedContent {
       recall
     }
   }
+  const templateText = extractSysmsgTemplateText(decoded)
+  if (templateText) {
+    return {
+      type: 'system',
+      content: templateText,
+      raw: content
+    }
+  }
   const delChatroomMemberText = extractDelChatroomMemberText(decoded)
   if (delChatroomMemberText) {
     return {
@@ -189,16 +292,19 @@ function parseSystemMessage(content: string): ParsedContent {
       raw: content
     }
   }
+  // <link_list> 里放的是富文本片段（可能含 hidden="1" 的可点击按钮），
+  // 不是消息正文；先剥掉再走通用提取，避免把按钮文案当成整条系统消息。
+  const withoutLinkList = stripSysmsgLinkList(decoded)
   const plainText =
-    extractXmlNodeText(decoded, 'plain') ||
-    extractXmlNodeText(decoded, 'text') ||
-    extractXmlNodeText(decoded, 'title') ||
-    extractXmlValue(decoded, 'plain') ||
-    extractXmlValue(decoded, 'text') ||
-    extractXmlValue(decoded, 'title') ||
+    extractXmlNodeText(withoutLinkList, 'plain') ||
+    extractXmlNodeText(withoutLinkList, 'text') ||
+    extractXmlNodeText(withoutLinkList, 'title') ||
+    extractXmlValue(withoutLinkList, 'plain') ||
+    extractXmlValue(withoutLinkList, 'text') ||
+    extractXmlValue(withoutLinkList, 'title') ||
     ''
 
-  const normalized = normalizeSystemText(plainText || fallbackSystemText(decoded))
+  const normalized = normalizeSystemText(plainText || fallbackSystemText(withoutLinkList))
   return {
     type: 'system',
     content: normalized || '[系统消息]',
@@ -439,6 +545,30 @@ function parseLocationMessage(content: string): ParsedContent {
 function parseShareMessage(content: string): ParsedContent {
   const appMsgType = extractAppMsgType(content)
   const isFileMessage = appMsgType === '6' || appMsgType === '74'
+  if (/<patMsg\b/i.test(content) || /sysmsg[^>]+type=["']pat["']/i.test(content)) {
+    return parsePatMessage(content)
+  }
+  if (/<findernamecard\b/i.test(content)) {
+    return parseFinderNameCard(content)
+  }
+  if (/<productitem\b/i.test(content) && !extractXmlValue(content, 'title')) {
+    return parseProductItem(content)
+  }
+  if (looksLikeMusicShare(content)) {
+    return parseMusicShareCard(content)
+  }
+  if (looksLikeSubscribeCard(content)) {
+    return parseSubscribeCard(content)
+  }
+  if (looksLikeKefuCard(content)) {
+    return parseKefuCard(content)
+  }
+  if (looksLikeStreamVideo(content)) {
+    return parseStreamVideoCard(content)
+  }
+  if (looksLikeGiftCard(content)) {
+    return parseGiftCard(content)
+  }
   if (appMsgType === '19') {
     return parseForwardBundle(content)
   }
@@ -481,12 +611,25 @@ function parseShareMessage(content: string): ParsedContent {
     }
   }
 
-  if (appMsgType === '2001') {
+  if (appMsgType === '2001' || /mmpayhb|receivehongbao|wxpay:\/\/c2cbizmessagehandler\/hongbao/i.test(content)) {
+    const pay = parseWcpayInfo(content)
+    const url = decodeXmlUrl(extractXmlValue(content, 'url')) || undefined
     return {
       type: 'redPacket',
-      title: extractXmlValue(content, 'title') || '微信红包',
-      description: extractXmlValue(content, 'des') || '恭喜发财，大吉大利',
-      url: decodeXmlUrl(extractXmlValue(content, 'url')) || undefined
+      title:
+        pay.sendTitle ||
+        pay.receiveTitle ||
+        extractXmlValue(content, 'title') ||
+        '微信红包',
+      description:
+        extractXmlValue(content, 'des') ||
+        pay.sceneText ||
+        '恭喜发财，大吉大利',
+      url,
+      pay: {
+        ...pay,
+        sendId: pay.sendId || extractSendIdFromUrl(url)
+      }
     }
   }
 
@@ -506,6 +649,12 @@ function parseShareMessage(content: string): ParsedContent {
   const typeVal = extractXmlValue(content, 'type') || ''
 
   if (!title && !url) {
+    if (/<productitem\b/i.test(content)) return parseProductItem(content)
+    if (looksLikeMusicShare(content)) return parseMusicShareCard(content)
+    if (looksLikeSubscribeCard(content)) return parseSubscribeCard(content)
+    if (looksLikeKefuCard(content)) return parseKefuCard(content)
+    if (looksLikeStreamVideo(content)) return parseStreamVideoCard(content)
+    if (looksLikeGiftCard(content)) return parseGiftCard(content)
     return { type: 'unknown', raw: content }
   }
 
@@ -516,7 +665,372 @@ function parseShareMessage(content: string): ParsedContent {
     url,
     appname,
     typeVal,
-    articles: articles.length > 1 ? articles : undefined
+    articles: articles.length > 1 ? articles : undefined,
+    transfer: typeVal === '2000' ? parseWcpayInfo(content) : undefined
+  }
+}
+
+/** 只读解析 `<wcpayinfo>`（转账 / 红包展示字段；不做支付）。 */
+function parseWcpayInfo(content: string): TransferPaymentInfo & RedPacketPaymentInfo {
+  const block = /<wcpayinfo>([\s\S]*?)<\/wcpayinfo>/i.exec(content)?.[1] || content
+  const val = (tag: string): string | undefined => {
+    const raw = extractXmlValue(block, tag)
+    return raw ? decodeXmlEntities(raw) || undefined : undefined
+  }
+  const transferStatus = val('transfer_status')
+  const hbStatus = val('hb_status')
+  const receiveStatus = val('receive_status')
+  return {
+    paySubtype: val('paysubtype'),
+    amountText: val('feedesc'),
+    transcationId: val('transcationid'),
+    transferId: val('transferid'),
+    invalidTime: val('invalidtime'),
+    beginTransferTime: val('begintransfertime'),
+    effectiveDate: val('effectivedate'),
+    payMemo: val('pay_memo') || undefined,
+    receiverUsername: val('receiver_username'),
+    payerUsername: val('payer_username'),
+    transferStatus,
+    transferStatusText: describeTransferStatus(transferStatus),
+    transId: val('trans_id'),
+    feeType: val('fee_type'),
+    transferAttach: val('transfer_attach'),
+    refundBankType: val('refund_bank_type'),
+    templateId: val('templateid'),
+    receiveTitle: val('receivertitle'),
+    sendTitle: val('sendertitle'),
+    sceneText: val('scenetext'),
+    senderDes: val('senderdes'),
+    receiverDes: val('receiverdes'),
+    iconUrl: decodeXmlUrl(val('iconurl') || '') || undefined,
+    nativeUrl: val('nativeurl'),
+    hbType: val('hb_type'),
+    hbStatus,
+    receiveStatus,
+    redPacketStatusText: describeRedPacketStatus(hbStatus, receiveStatus)
+  }
+}
+
+function extractSendIdFromUrl(url?: string): string | undefined {
+  if (!url) return undefined
+  try {
+    return new URL(url).searchParams.get('sendid') || undefined
+  } catch {
+    return /sendid=(\d+)/i.exec(url)?.[1]
+  }
+}
+
+/** 拍一拍（`HandlePatMsg` / `<patMsg>`）→ 系统文案。 */
+function parsePatMessage(content: string): ParsedContent {
+  const decoded = decodeXmlEntities(stripChatroomPrefix(content))
+  const template =
+    extractXmlValue(decoded, 'template') ||
+    extractXmlValue(decoded, 'pattemplate') ||
+    extractXmlValue(decoded, 'plain') ||
+    ''
+  const from = extractXmlValue(decoded, 'fromusername') || extractXmlValue(decoded, 'fromuser')
+  const to = extractXmlValue(decoded, 'tousername') || extractXmlValue(decoded, 'touser')
+  const pat = extractXmlValue(decoded, 'pat') || extractXmlValue(decoded, 'patted')
+  const text =
+    normalizeSystemText(
+      template.replace(/\$from\$/g, from || '').replace(/\$to\$/g, to || '').replace(/\$pat\$/g, pat || '')
+    ) || normalizeSystemText(decoded.replace(/<[^>]+>/g, ' ')) || '拍了拍'
+  return { type: 'system', content: text, raw: content }
+}
+
+/** 视频号名片（`<findernamecard>`）→ 只读 share。 */
+function parseFinderNameCard(content: string): ParsedContent {
+  const decoded = decodeXmlEntities(stripChatroomPrefix(content))
+  const username = extractXmlValue(decoded, 'username') || extractXmlValue(decoded, 'finderUsername')
+  const nickname = extractXmlValue(decoded, 'nickname') || extractXmlValue(decoded, 'finderNickname')
+  const title = nickname || username || extractXmlValue(decoded, 'title') || '视频号名片'
+  const url = decodeXmlUrl(extractXmlValue(decoded, 'url') || extractXmlValue(decoded, 'appPageUrl') || '')
+  return {
+    type: 'share',
+    title,
+    des: username && nickname ? username : undefined,
+    url: url || '',
+    appname: '视频号',
+    typeVal: extractAppMsgType(content) || 'findernamecard'
+  }
+}
+
+/** 商品卡（`<productitem>`）→ 只读 share。 */
+function parseProductItem(content: string): ParsedContent {
+  const decoded = decodeXmlEntities(stripChatroomPrefix(content))
+  const title =
+    extractXmlValue(decoded, 'productName') ||
+    extractXmlValue(decoded, 'product_name') ||
+    extractXmlValue(decoded, 'title') ||
+    '商品'
+  const des =
+    extractXmlValue(decoded, 'productDesc') ||
+    extractXmlValue(decoded, 'sellingPrice') ||
+    extractXmlValue(decoded, 'referdes')
+  const url = decodeXmlUrl(extractXmlValue(decoded, 'url') || extractXmlValue(decoded, 'productUrl') || '')
+  return {
+    type: 'share',
+    title,
+    des: des || undefined,
+    url: url || '',
+    appname: extractXmlValue(decoded, 'sellername') || '商品',
+    typeVal: extractAppMsgType(content) || 'productitem'
+  }
+}
+
+/** 好友验证（local_type=37）→ 系统文案，避免 unknown 黑块。 */
+function parseFriendVerifyMessage(content: string): ParsedContent {
+  const decoded = decodeXmlEntities(stripChatroomPrefix(content))
+  const text = extractSysmsgTemplateText(decoded)
+  if (text) return { type: 'system', content: text, raw: content }
+  const nickname = extractXmlValue(decoded, 'nickname') || extractXmlValue(decoded, 'NickName')
+  const username = extractXmlValue(decoded, 'username') || extractXmlValue(decoded, 'UserName')
+  const contentText =
+    extractXmlValue(decoded, 'content') ||
+    extractXmlValue(decoded, 'bighead') ||
+    extractXmlValue(decoded, 'source')
+  const label = normalizeSystemText(
+    [nickname || username ? `${nickname || username}` : '', contentText || '好友验证消息']
+      .filter(Boolean)
+      .join(' · ')
+  )
+  return { type: 'system', content: label || '好友验证消息', raw: content }
+}
+
+function looksLikeMusicShare(content: string): boolean {
+  return /songalbumurl|songlyric|musicShareItem|tingListenItem|ListenItem|music_share_item|musicurl|<songlyri|<songalbu/i.test(
+    content
+  )
+}
+
+function looksLikeSubscribeCard(content: string): boolean {
+  return /subscribeMessage|subscribe_msg|SubscribeMsg|updatablemsg|wadynamicpageinf|OnSubscriptionCustom/i.test(
+    content
+  )
+}
+
+function looksLikeKefuCard(content: string): boolean {
+  return /opencustomerservicemsg|wa_app_kefu_message|kefumenu|kf_order|kf_user_|ChatKfTemplate|AppReaderTemplate|template_header/i.test(
+    content
+  )
+}
+
+/** 流视频 / 长视频卡（`streamvideotitle` / `finderMegaVideo`）。 */
+function looksLikeStreamVideo(content: string): boolean {
+  return /streamvideotitle|streamvideoword|streamvideoweburl|streamvideothumb|finderMegaVideo|finderLiveInvite/i.test(
+    content
+  )
+}
+
+/**
+ * 礼物 / 礼品卡（`csgift` / `giftcarditem`）。
+ * 只读展示；**不**调用 `acceptgiftcard` / `preacceptgiftcard` / `getcardgiftinfo`。
+ */
+function looksLikeGiftCard(content: string): boolean {
+  return /<csgift\b|<ecsgift\b|<giftcarditem\b|<giftcard\b|giftcarditem|acceptgiftcard/i.test(content)
+}
+
+/** 流视频卡 → 只读 share。 */
+function parseStreamVideoCard(content: string): ParsedContent {
+  const decoded = decodeXmlEntities(stripChatroomPrefix(content))
+  const title =
+    extractXmlValue(decoded, 'streamvideotitle') ||
+    extractXmlValue(decoded, 'title') ||
+    extractXmlValue(decoded, 'sourcetitle') ||
+    '视频'
+  const des =
+    extractXmlValue(decoded, 'streamvideoword') ||
+    extractXmlValue(decoded, 'des') ||
+    extractXmlValue(decoded, 'contentdescshowtext') ||
+    undefined
+  const url =
+    decodeXmlUrl(
+      extractXmlValue(decoded, 'streamvideoweburl') ||
+        extractXmlValue(decoded, 'url') ||
+        extractXmlValue(decoded, 'weburl')
+    ) || ''
+  return {
+    type: 'share',
+    title,
+    des,
+    url,
+    appname: /finderMegaVideo|finderLiveInvite/i.test(content) ? '视频号' : '视频',
+    typeVal: extractAppMsgType(content) || 'streamvideo'
+  }
+}
+
+/** 礼物 / 礼品卡 → 只读 share（无 title 时 system 文案）。 */
+function parseGiftCard(content: string): ParsedContent {
+  const decoded = decodeXmlEntities(stripChatroomPrefix(content))
+  const title =
+    extractXmlValue(decoded, 'title') ||
+    extractXmlValue(decoded, 'gifttitle') ||
+    extractXmlValue(decoded, 'cardtitle') ||
+    extractXmlValue(decoded, 'brandname')
+  const des =
+    extractXmlValue(decoded, 'des') ||
+    extractXmlValue(decoded, 'giftwording') ||
+    extractXmlValue(decoded, 'cardwording') ||
+    extractXmlValue(decoded, 'description')
+  const url = decodeXmlUrl(extractXmlValue(decoded, 'url') || extractXmlValue(decoded, 'cardurl') || '')
+  if (!title && !des) {
+    return {
+      type: 'system',
+      content: normalizeSystemText(decoded.replace(/<[^>]+>/g, ' ')) || '礼物卡',
+      raw: content
+    }
+  }
+  return {
+    type: 'share',
+    title: title || '礼物卡',
+    des: des || undefined,
+    url: url || '',
+    appname: extractXmlValue(decoded, 'brandname') || '礼物',
+    typeVal: extractAppMsgType(content) || 'giftcard'
+  }
+}
+
+/**
+ * local_type=2：真机 histogram 未采到；按内容形态尽量落到 system/text，
+ * 否则保留 unknown（见 wechat-message-type-coverage.md）。
+ */
+function parseLegacyType2(content: string): ParsedContent {
+  if (/<sysmsg\b|<patMsg\b|revoke/i.test(content)) {
+    return parseSystemMessage(content)
+  }
+  if (!/<[a-zA-Z!]/.test(content)) {
+    return { type: 'text', content }
+  }
+  return parseSystemMessage(content)
+}
+
+/**
+ * local_type=8：社区多见于 GIF/大表情变体；无真机样本时按 sticker → image → system
+ * 逐级尝试，避免直接黑块。
+ */
+function parseLegacyType8(content: string): ParsedContent {
+  const sticker = parseStickerMessage(content)
+  if (sticker.type === 'sticker' && sticker.md5) return sticker
+  const image = parseImageMessage(content)
+  if (image.type === 'image' && (image.md5 || image.datName)) return image
+  if (/<sysmsg\b|<emoji\b|<msg\b/i.test(content)) {
+    const system = parseSystemMessage(content)
+    if (system.type === 'system' && system.content && system.content !== content) return system
+  }
+  return { type: 'unknown', raw: content, messageType: 8 }
+}
+
+/** 音乐 / 听歌分享（`musicShareItem` / `ListenItem` / `songalbumurl`）→ 只读 share。 */
+function parseMusicShareCard(content: string): ParsedContent {
+  const decoded = decodeXmlEntities(stripChatroomPrefix(content))
+  const title =
+    extractXmlValue(decoded, 'title') ||
+    extractXmlValue(decoded, 'songname') ||
+    extractXmlValue(decoded, 'musicTitle') ||
+    '音乐分享'
+  const des =
+    extractXmlValue(decoded, 'des') ||
+    extractXmlValue(decoded, 'singername') ||
+    extractXmlValue(decoded, 'albumname') ||
+    undefined
+  const url =
+    decodeXmlUrl(
+      extractXmlValue(decoded, 'url') ||
+        extractXmlValue(decoded, 'musicurl') ||
+        extractXmlValue(decoded, 'streamweburl') ||
+        extractXmlValue(decoded, 'weburl')
+    ) || ''
+  const appname =
+    extractXmlValue(decoded, 'appname') ||
+    extractXmlValue(decoded, 'publisher') ||
+    (looksLikeListenItem(content) ? '听一听' : '音乐')
+  return {
+    type: 'share',
+    title,
+    des,
+    url,
+    appname,
+    typeVal: extractAppMsgType(content) || 'music'
+  }
+}
+
+function looksLikeListenItem(content: string): boolean {
+  return /tingListenItem|ListenItem|MMLISTEN_ITEM_TYPE/i.test(content)
+}
+
+/**
+ * 订阅号 / 可更新消息模板（`subscribeMessage` / `updatablemsg`）→ 只读 share。
+ * 模板头 `template_header` / `template_detail` 作标题与摘要。
+ */
+function parseSubscribeCard(content: string): ParsedContent {
+  const decoded = decodeXmlEntities(stripChatroomPrefix(content))
+  const title =
+    extractXmlValue(decoded, 'template_header') ||
+    extractXmlValue(decoded, 'title') ||
+    extractXmlValue(decoded, 'templatetitle') ||
+    '订阅消息'
+  const des =
+    extractXmlValue(decoded, 'template_detail') ||
+    extractXmlValue(decoded, 'des') ||
+    extractXmlValue(decoded, 'digest') ||
+    undefined
+  const url =
+    decodeXmlUrl(
+      extractXmlValue(decoded, 'url') ||
+        extractXmlValue(decoded, 'jumpUrl') ||
+        extractXmlValue(decoded, 'weburl')
+    ) || ''
+  return {
+    type: 'share',
+    title,
+    des,
+    url,
+    appname: extractXmlValue(decoded, 'appname') || '订阅消息',
+    typeVal: extractAppMsgType(content) || 'subscribe'
+  }
+}
+
+/**
+ * 客服 / 门店模板卡（`opencustomerservicemsg` / `wa_app_kefu_message` / `kefumenu`）
+ * → 只读 share；无 title 时退化为 system 文案，避免 unknown 黑块。
+ */
+function parseKefuCard(content: string): ParsedContent {
+  const decoded = decodeXmlEntities(stripChatroomPrefix(content))
+  const title =
+    extractXmlValue(decoded, 'template_header') ||
+    extractXmlValue(decoded, 'title') ||
+    extractXmlValue(decoded, 'kf_title') ||
+    extractXmlValue(decoded, 'templatetitle')
+  const des =
+    extractXmlValue(decoded, 'template_detail') ||
+    extractXmlValue(decoded, 'kf_order_text') ||
+    extractXmlValue(decoded, 'des') ||
+    extractXmlValue(decoded, 'content')
+  const url =
+    decodeXmlUrl(
+      extractXmlValue(decoded, 'url') ||
+        extractXmlValue(decoded, 'jumpUrl') ||
+        extractXmlValue(decoded, 'weburl')
+    ) || ''
+  const appname =
+    extractXmlValue(decoded, 'kf_user_name') ||
+    extractXmlValue(decoded, 'appname') ||
+    '客服消息'
+  if (!title && !des) {
+    return {
+      type: 'system',
+      content: normalizeSystemText(decoded.replace(/<[^>]+>/g, ' ')) || '客服消息',
+      raw: content
+    }
+  }
+  return {
+    type: 'share',
+    title: title || '客服消息',
+    des: des || undefined,
+    url: url || '',
+    appname,
+    typeVal: extractAppMsgType(content) || 'kefu'
   }
 }
 
@@ -836,6 +1350,76 @@ function extractDelChatroomMemberText(xml: string): string {
   const textMatch = /<text[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/text>/i.exec(xml)
   if (textMatch?.[1]) return textMatch[1].trim()
   return ''
+}
+
+/** 剥掉 <link_list> 区块 —— 其中的文案属于富文本片段，不是消息正文。 */
+function stripSysmsgLinkList(xml: string): string {
+  return String(xml || '').replace(/<link_list\b[\s\S]*?<\/link_list>/gi, ' ')
+}
+
+/**
+ * 微信 4.x 起，部分系统消息改成「模板」格式，正文不再写在 <plain> 里。
+ *
+ * 旧格式（正文就在 <plain>，取到即可）：
+ *
+ *   <sysmsg type="delchatroommember"><delchatroommember>
+ *     <plain><![CDATA["成员昵称"通过扫描你分享的二维码加入群聊]]></plain>
+ *     <link><scene>qrcode</scene><text><![CDATA[撤销]]></text>…</link>
+ *   </delchatroommember></sysmsg>
+ *
+ * 新格式（<plain> 变空，正文挪进 <template>，用 $名称$ 引用 <link_list> 里的 link）：
+ *
+ *   <sysmsg type="sysmsgtemplate"><sysmsgtemplate>
+ *     <content_template type="tmpl_type_profilewithrevokeqrcode">
+ *       <plain><![CDATA[]]></plain>
+ *       <template><![CDATA["$adder$"通过扫描你分享的二维码加入群聊  $revoke$]]></template>
+ *       <link_list>
+ *         <link name="adder" type="link_profile">
+ *           <memberlist><member><nickname><![CDATA[成员昵称]]></nickname></member></memberlist>
+ *         </link>
+ *         <link name="revoke" type="link_revoke_qrcode" hidden="1">
+ *           <title><![CDATA[撤销]]></title>
+ *         </link>
+ *       </link_list>
+ *     </content_template>
+ *   </sysmsgtemplate></sysmsg>
+ *
+ * 两个要点：
+ *   1. 正文取自 <template>，其中的 $名称$ 占位符按 <link_list> 的 link name 回填；
+ *   2. hidden="1" 的 link 在微信里是可点击按钮，纯文本展示时省略其文案。
+ *
+ * 漏掉这段会让新格式消息落进通用提取链：<plain> 为空、又没有 <text>，
+ * 于是取到 <title> —— 也就是那个隐藏按钮的标题，整条系统消息只剩一个按钮名。
+ */
+function extractSysmsgTemplateText(xml: string): string {
+  if (!/<sysmsgtemplate\b|<content_template\b/i.test(xml)) return ''
+
+  const template = extractXmlNodeText(xml, 'template')
+  if (!template) return ''
+
+  const links = new Map<string, { text: string; hidden: boolean }>()
+  const linkPattern = /<link\b([^>]*)>([\s\S]*?)<\/link>/gi
+  let linkMatch: RegExpExecArray | null
+  while ((linkMatch = linkPattern.exec(xml)) !== null) {
+    const name = extractXmlValue(linkMatch[1], 'name')
+    if (!name) continue
+    links.set(name, {
+      // title 用于按钮文案，nickname 用于成员展示名，text 作最后兜底。
+      text:
+        extractXmlNodeText(linkMatch[2], 'title') ||
+        extractXmlNodeText(linkMatch[2], 'nickname') ||
+        extractXmlNodeText(linkMatch[2], 'text') ||
+        '',
+      hidden: /hidden\s*=\s*["']1["']/i.test(linkMatch[1])
+    })
+  }
+
+  const rendered = template.replace(/\$([A-Za-z0-9_]+)\$/g, (_raw, name: string) => {
+    const link = links.get(name)
+    return link && !link.hidden ? link.text : ''
+  })
+
+  return normalizeSystemText(rendered)
 }
 
 function normalizeMd5(value: unknown): string | undefined {

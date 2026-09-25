@@ -5,7 +5,10 @@ import {
   GroupReportExportResult,
   GroupReportRenderSnapshotExportRequest
 } from '../shared/group-report'
-import type { InstalledReportTemplate, ReportTemplateOperationResult } from '../shared/report-template-package'
+import type {
+  InstalledReportTemplate,
+  ReportTemplateOperationResult
+} from '../shared/report-template-package'
 import type {
   ReportTemplateCatalogInstallResult,
   ReportTemplateCatalogResult
@@ -57,7 +60,19 @@ import type {
   ImageCandidateQuery,
   ImageInsight
 } from '../shared/image-insight'
+import type { SystemOcrCapability, SystemOcrRequest, SystemOcrResult } from '../shared/system-ocr'
+import type {
+  ImageTextIndexCountResult,
+  ImageTextIndexRepairResult,
+  ImageTextIndexStartOptions,
+  ImageTextIndexStatus
+} from '../shared/image-text-index'
 import type { AgentHubActionResult, AgentHubLogEntry, AgentHubStatus } from '../shared/agent-hub'
+import type {
+  AgentHubConversation,
+  AgentHubConversationMessage,
+  AgentHubConversationSummary
+} from '../shared/agent-hub-conversation'
 import type {
   PersonalWechatGeneratedTtsVoiceRequest,
   PersonalWechatGeneratedTtsVoiceResult,
@@ -94,7 +109,7 @@ import type {
   AppUpdateOpenDownloadPageResult,
   AppUpdateState
 } from '../shared/app-update'
-import type { CacheSummary } from '../shared/cache'
+import type { CacheClearScope, CacheSummary } from '../shared/cache'
 import type { ExportRequest, ExportJobProgress, ExportResult } from '../shared/export'
 import type {
   VoiceBatchPreflight,
@@ -140,6 +155,37 @@ import type {
   TextToSpeechSettingsResult
 } from '../shared/text-to-speech'
 
+export type TransferPaymentInfo = {
+  paySubtype?: string
+  amountText?: string
+  transcationId?: string
+  transferId?: string
+  invalidTime?: string
+  beginTransferTime?: string
+  effectiveDate?: string
+  payMemo?: string
+  receiverUsername?: string
+  payerUsername?: string
+  transferStatus?: string
+  transferStatusText?: string
+}
+
+export type RedPacketPaymentInfo = {
+  templateId?: string
+  receiveTitle?: string
+  sendTitle?: string
+  sceneText?: string
+  senderDes?: string
+  receiverDes?: string
+  iconUrl?: string
+  nativeUrl?: string
+  sendId?: string
+  hbType?: string
+  hbStatus?: string
+  receiveStatus?: string
+  redPacketStatusText?: string
+}
+
 export type ParsedContent =
   | { type: 'text'; content: string }
   | { type: 'voice'; duration?: number }
@@ -152,6 +198,7 @@ export type ParsedContent =
       url: string
       appname?: string
       typeVal?: string
+      transfer?: TransferPaymentInfo
     }
   | {
       type: 'miniProgram'
@@ -163,7 +210,13 @@ export type ParsedContent =
       thumbDatName?: string
       thumbDataUrl?: string
     }
-  | { type: 'redPacket'; title: string; description?: string; url?: string }
+  | {
+      type: 'redPacket'
+      title: string
+      description?: string
+      url?: string
+      pay?: RedPacketPaymentInfo
+    }
   | { type: 'voip'; duration?: number; status: string; roomType?: number }
   | { type: 'image'; md5?: string; datName?: string; aeskey?: string; encrypVer?: number }
   | {
@@ -210,7 +263,7 @@ declare global {
       openAppUpdateDownloadPage: () => Promise<AppUpdateOpenDownloadPageResult>
       onAppUpdateState: (callback: (state: AppUpdateState) => void) => () => void
       getCacheSummary: () => Promise<CacheSummary>
-      clearCache: (scope: 'bootstrap' | 'electron' | 'knowledge' | 'all') => Promise<CacheSummary>
+      clearCache: (scope: CacheClearScope) => Promise<CacheSummary>
       openKnowledgeDirectory: () => Promise<{ success: boolean; error?: string }>
       initDb: (key: string, accountRoot: string) => Promise<boolean | DatabaseInitResult>
       discoverAccounts: (inputPath: string) => Promise<AccountDiscoveryResult>
@@ -363,7 +416,10 @@ declare global {
       cancelVoiceModelDownload: () => Promise<{ success: boolean }>
       removeVoiceModel: () => Promise<VoiceModelStatus>
       openVoiceModelDirectory: () => Promise<{ success: boolean; error?: string }>
-      recognizeVoice: (reference: VoiceMessageReference) => Promise<VoiceRecognitionResult>
+      recognizeVoice: (
+        reference: VoiceMessageReference,
+        options?: { force?: boolean }
+      ) => Promise<VoiceRecognitionResult>
       getVoiceTranscriptSnapshot: (
         reference: VoiceMessageReference
       ) => Promise<VoiceTranscriptSnapshot>
@@ -660,6 +716,23 @@ declare global {
         sessionId: string,
         limit?: number
       ) => Promise<{ success: boolean; insights: ImageInsight[] }>
+      // 本地图片文字识别（System OCR，本地 Runtime，非 AI Provider）
+      getSystemOcrCapability: () => Promise<SystemOcrCapability>
+      recognizeLocalImageText: (request: SystemOcrRequest) => Promise<SystemOcrResult>
+      getImageTextIndexStatus: () => Promise<ImageTextIndexStatus>
+      countImageMessages: (sinceMs?: number) => Promise<ImageTextIndexCountResult>
+      startImageTextIndex: (
+        options?: ImageTextIndexStartOptions
+      ) => Promise<{ started: boolean; state: string }>
+      pauseImageTextIndex: () => Promise<{ paused: boolean; state: string }>
+      resumeImageTextIndex: (
+        options?: ImageTextIndexStartOptions
+      ) => Promise<{ started: boolean; state: string }>
+      cancelImageTextIndex: () => Promise<{ cancellable: boolean; cancelled: boolean }>
+      clearImageTextIndex: () => Promise<{ removed: boolean; removedBytes: number }>
+      resetImageTextIndexFailures: () => Promise<{ reset: number }>
+      repairImageTextIndex: () => Promise<ImageTextIndexRepairResult>
+      onImageTextIndexStatus: (callback: (status: ImageTextIndexStatus) => void) => () => void
       getPersonalWechatSenderStatus: () => Promise<PersonalWechatSenderStatus>
       getPersonalWechatSendCapability: () => Promise<PersonalWechatSendCapability>
       getPersonalWechatKeepOneBotProcess: () => Promise<boolean>
@@ -722,6 +795,16 @@ declare global {
       reconnectAgentHub: () => Promise<AgentHubActionResult>
       disconnectAgentHub: () => Promise<AgentHubActionResult>
       selectAgentHubTestImage: () => Promise<{ canceled: boolean; path?: string }>
+      getAgentHubConversations: () => Promise<AgentHubConversationSummary[]>
+      getAgentHubConversation: (userId: string) => Promise<AgentHubConversation | null>
+      clearAgentHubConversations: () => Promise<{ success: boolean }>
+      onAgentHubConversation: (
+        callback: (payload: {
+          summary: AgentHubConversationSummary
+          message: AgentHubConversationMessage
+        }) => void
+      ) => () => void
+      onAgentHubConversationsCleared: (callback: () => void) => () => void
       onAgentHubStatus: (callback: (status: AgentHubStatus) => void) => () => void
       onAgentHubLog: (callback: (entry: AgentHubLogEntry) => void) => () => void
     }

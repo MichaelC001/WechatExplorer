@@ -30,7 +30,18 @@ import type {
   ImageCandidateQuery,
   ImageInsight
 } from '../shared/image-insight'
+import type { SystemOcrCapability, SystemOcrRequest, SystemOcrResult } from '../shared/system-ocr'
+import type {
+  ImageTextIndexCountResult,
+  ImageTextIndexRepairResult,
+  ImageTextIndexStartOptions,
+  ImageTextIndexStatus
+} from '../shared/image-text-index'
 import type { AgentHubLogEntry, AgentHubStatus } from '../shared/agent-hub'
+import type {
+  AgentHubConversationMessage,
+  AgentHubConversationSummary
+} from '../shared/agent-hub-conversation'
 import type {
   PersonalWechatGeneratedTtsVoiceRequest,
   PersonalWechatGeneratedTtsVoiceResult,
@@ -62,7 +73,7 @@ import type { AppLogEntry } from '../shared/app-log'
 import type { AppUpdateState } from '../shared/app-update'
 import type { GroupExitMonitorState } from '../shared/group-exit-monitor'
 import type { ActionLogEntry } from '../shared/action-log'
-import type { CacheSummary } from '../shared/cache'
+import type { CacheClearScope, CacheSummary } from '../shared/cache'
 import type { ExportRequest, ExportJobProgress } from '../shared/export'
 import type { ImageDecoderSelectionResult, ImageDecoderStatus } from '../shared/image-decryption'
 import type { AccountDiscoveryResult } from '../shared/database-key'
@@ -122,7 +133,7 @@ const api = {
     return () => ipcRenderer.removeListener('app-update:state', listener)
   },
   getCacheSummary: (): Promise<CacheSummary> => ipcRenderer.invoke('cache:getSummary'),
-  clearCache: (scope: 'bootstrap' | 'electron' | 'knowledge' | 'all'): Promise<CacheSummary> =>
+  clearCache: (scope: CacheClearScope): Promise<CacheSummary> =>
     ipcRenderer.invoke('cache:clear', scope),
   openKnowledgeDirectory: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('cache:openKnowledgeDirectory'),
@@ -206,9 +217,7 @@ const api = {
    *
    * 事件带 requestId：UI 必须只认自己那一次请求，否则用户连问两次时阶段文案会串台。
    */
-  onAskWechatProgress: (
-    callback: (requestId: string, event: QueryAgentProgressEvent) => void
-  ) => {
+  onAskWechatProgress: (callback: (requestId: string, event: QueryAgentProgressEvent) => void) => {
     const listener = (
       _event: Electron.IpcRendererEvent,
       requestId: string,
@@ -276,8 +285,10 @@ const api = {
   removeVoiceModel: (): Promise<VoiceModelStatus> => ipcRenderer.invoke('voice:removeModel'),
   openVoiceModelDirectory: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('voice:openModelDirectory'),
-  recognizeVoice: (reference: VoiceMessageReference): Promise<VoiceRecognitionResult> =>
-    ipcRenderer.invoke('voice:recognize', reference),
+  recognizeVoice: (
+    reference: VoiceMessageReference,
+    options?: { force?: boolean }
+  ): Promise<VoiceRecognitionResult> => ipcRenderer.invoke('voice:recognize', reference, options),
   getVoiceTranscriptSnapshot: (
     reference: VoiceMessageReference
   ): Promise<VoiceTranscriptSnapshot> =>
@@ -462,6 +473,48 @@ const api = {
     limit?: number
   ): Promise<{ success: boolean; insights: ImageInsight[] }> =>
     ipcRenderer.invoke('image:listInsights', sessionId, limit),
+  // 本地图片文字识别（System OCR，本地 Runtime，非 AI Provider）
+  getSystemOcrCapability: (): Promise<SystemOcrCapability> =>
+    ipcRenderer.invoke('system-ocr:getCapability'),
+  recognizeLocalImageText: (request: SystemOcrRequest): Promise<SystemOcrResult> =>
+    ipcRenderer.invoke('system-ocr:recognize', request),
+
+  // 图片文字索引（微信图片 → 本地解密 → System OCR → 派生文本 → Knowledge）
+  getImageTextIndexStatus: (): Promise<ImageTextIndexStatus> =>
+    ipcRenderer.invoke('image-text-index:getStatus'),
+  /** 点击索引前的快速统计（SQL COUNT，不解密图片）。 */
+  countImageMessages: (sinceMs?: number): Promise<ImageTextIndexCountResult> =>
+    ipcRenderer.invoke('image-text-index:count', sinceMs),
+  startImageTextIndex: (
+    options?: ImageTextIndexStartOptions
+  ): Promise<{ started: boolean; state: string }> =>
+    ipcRenderer.invoke('image-text-index:start', options),
+  pauseImageTextIndex: (): Promise<{ paused: boolean; state: string }> =>
+    ipcRenderer.invoke('image-text-index:pause'),
+  resumeImageTextIndex: (
+    options?: ImageTextIndexStartOptions
+  ): Promise<{ started: boolean; state: string }> =>
+    ipcRenderer.invoke('image-text-index:resume', options),
+  cancelImageTextIndex: (): Promise<{ cancellable: boolean; cancelled: boolean }> =>
+    ipcRenderer.invoke('image-text-index:cancel'),
+  clearImageTextIndex: (): Promise<{ removed: boolean; removedBytes: number }> =>
+    ipcRenderer.invoke('image-text-index:clear'),
+  /** 只重置失败记录（成功记录与其它数据不动），供"修好代码后重跑"。 */
+  resetImageTextIndexFailures: (): Promise<{ reset: number }> =>
+    ipcRenderer.invoke('image-text-index:resetFailures'),
+  /**
+   * 派生索引修复：只重建 Knowledge 里的图片派生条目与 FTS。
+   *
+   * 已有的 OCR 结果（L1）一条都不动 —— 修复索引问题永远不该让几万张图片重算。
+   */
+  repairImageTextIndex: (): Promise<ImageTextIndexRepairResult> =>
+    ipcRenderer.invoke('image-text-index:repair'),
+  onImageTextIndexStatus: (callback: (status: ImageTextIndexStatus) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: ImageTextIndexStatus): void =>
+      callback(status)
+    ipcRenderer.on('image-text-index:status', listener)
+    return () => ipcRenderer.removeListener('image-text-index:status', listener)
+  },
   getPersonalWechatSenderStatus: (): Promise<PersonalWechatSenderStatus> =>
     ipcRenderer.invoke('wechat-personal:getStatus'),
   getPersonalWechatSendCapability: (): Promise<PersonalWechatSendCapability> =>
@@ -559,6 +612,28 @@ const api = {
   reconnectAgentHub: () => ipcRenderer.invoke('agent-hub:reconnect'),
   disconnectAgentHub: () => ipcRenderer.invoke('agent-hub:disconnect'),
   selectAgentHubTestImage: () => ipcRenderer.invoke('agent-hub:selectTestImage'),
+  getAgentHubConversations: () => ipcRenderer.invoke('agent-hub:getConversations'),
+  getAgentHubConversation: (userId: string) =>
+    ipcRenderer.invoke('agent-hub:getConversation', userId),
+  clearAgentHubConversations: () => ipcRenderer.invoke('agent-hub:clearConversations'),
+  onAgentHubConversation: (
+    callback: (payload: {
+      summary: AgentHubConversationSummary
+      message: AgentHubConversationMessage
+    }) => void
+  ) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      payload: { summary: AgentHubConversationSummary; message: AgentHubConversationMessage }
+    ): void => callback(payload)
+    ipcRenderer.on('agent-hub:conversation', listener)
+    return () => ipcRenderer.removeListener('agent-hub:conversation', listener)
+  },
+  onAgentHubConversationsCleared: (callback: () => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('agent-hub:conversationsCleared', listener)
+    return () => ipcRenderer.removeListener('agent-hub:conversationsCleared', listener)
+  },
   onAgentHubStatus: (callback: (status: AgentHubStatus) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, status: AgentHubStatus): void =>
       callback(status)

@@ -16,6 +16,15 @@ const REQUIRED_RUNTIME_PACKAGES = [
   'koffi'
 ]
 
+// electron-builder 26 skips macOS signing entirely when no Developer ID
+// identity is configured, so an unpacked bundle can ship without a usable
+// signature. macOS kills a helper whose code or signature is missing or
+// modified even when SIP is disabled, which is what customers hit on newer
+// macOS releases. Ad-hoc re-sign the runtime helpers and the outer bundle so
+// every Mach-O verifies strictly; spctl still rejects ad-hoc code, which is
+// acceptable for the SIP-disabled customer workflow.
+const MACOS_HELPER_NAMES = ['xkey_helper', 'xkey_helper_4_1_13']
+
 function getRuntimeResources(context) {
   const productName = context.packager.appInfo.productFilename
   return context.electronPlatformName === 'darwin'
@@ -78,9 +87,104 @@ function validateSherpaRuntime(runtimeResources, platform, arch) {
   }
 }
 
+/**
+ * System OCR 用 native package（@napi-rs/system-ocr）。它是 external + asarUnpack，
+ * 打包后必须以 unpacked 形式存在，否则运行时会 MODULE_NOT_FOUND / native binding missing。
+ * Windows 与 macOS 都是 supported target，都要做硬校验（Linux 不是）。
+ */
+function systemOcrTarget(platform, arch) {
+  return platform === 'win32' ? `${platform}-${arch}-msvc` : `${platform}-${arch}`
+}
+
+function validateSystemOcrRuntime(runtimeResources, platform, arch) {
+  if (platform !== 'win32' && platform !== 'darwin') return
+  const target = systemOcrTarget(platform, arch)
+  const basePath = path.join(
+    runtimeResources,
+    'app.asar.unpacked',
+    'node_modules',
+    '@napi-rs',
+    'system-ocr'
+  )
+  const nativePath = path.join(
+    runtimeResources,
+    'app.asar.unpacked',
+    'node_modules',
+    '@napi-rs',
+    `system-ocr-${target}`
+  )
+  const requiredFiles = [
+    path.join(basePath, 'package.json'),
+    path.join(basePath, 'index.js'),
+    path.join(nativePath, 'package.json'),
+    path.join(nativePath, `system-ocr.${target}.node`)
+  ]
+  const missingFiles = requiredFiles.filter((filePath) => !existsSync(filePath))
+  if (missingFiles.length > 0) {
+    throw new Error(`Missing unpacked System OCR runtime: ${missingFiles.join(', ')}`)
+  }
+}
+
 function normalizeBuilderArch(arch) {
   if (typeof arch === 'string') return arch
   return { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' }[arch] || String(arch)
+}
+
+function runCodesign(args) {
+  execFileSync('/usr/bin/codesign', args, { stdio: 'ignore' })
+}
+
+function isMacosCodeValid(targetPath, run = runCodesign) {
+  try {
+    run(['--verify', '--strict', targetPath])
+    return true
+  } catch {
+    return false
+  }
+}
+
+function findMacosHelperPaths(runtimeResources) {
+  return MACOS_HELPER_NAMES.map((name) => path.join(runtimeResources, 'resources', name)).filter(
+    (helperPath) => existsSync(helperPath)
+  )
+}
+
+function signMacosHelpers(runtimeResources, run = runCodesign) {
+  const helperPaths = findMacosHelperPaths(runtimeResources)
+  for (const helperPath of helperPaths) {
+    chmodSync(helperPath, 0o755)
+    if (!isMacosCodeValid(helperPath, run)) {
+      run(['--force', '--sign', '-', helperPath])
+    }
+    for (const arch of ['arm64', 'x86_64']) {
+      try {
+        run(['--verify', '--strict', '--arch', arch, helperPath])
+      } catch (error) {
+        throw new Error(
+          'macOS helper signature verification failed: ' +
+            path.basename(helperPath) +
+            ' (' +
+            arch +
+            ')',
+          { cause: error }
+        )
+      }
+    }
+  }
+  return helperPaths
+}
+
+function signMacosAppBundle(appBundlePath, run = runCodesign) {
+  if (isMacosCodeValid(appBundlePath, run)) return appBundlePath
+  run(['--force', '--sign', '-', appBundlePath])
+  try {
+    run(['--verify', '--strict', appBundlePath])
+  } catch (error) {
+    throw new Error('macOS app bundle signature verification failed: ' + appBundlePath, {
+      cause: error
+    })
+  }
+  return appBundlePath
 }
 
 /**
@@ -152,16 +256,24 @@ function validateReaderSkillRuntime(runtimeResources) {
  * The loaders pick their package from process.platform/arch, so the siblings
  * are dead weight — drop them.
  */
+// 每个条目返回 platform package 的**完整后缀**（不含 package 前缀与连字符）。
 const NATIVE_RUNTIME_PACKAGES = [
   {
     modules: [],
     prefix: 'sherpa-onnx',
-    platformName: (platform) => (platform === 'win32' ? 'win' : platform)
+    platformName: (platform, arch) => `${platform === 'win32' ? 'win' : platform}-${arch}`
   },
   {
     modules: ['@koromix'],
     prefix: 'koffi',
-    platformName: (platform) => platform
+    platformName: (platform, arch) => `${platform}-${arch}`
+  },
+  {
+    // @napi-rs 的 platform package 目录名带 -msvc 后缀（win32-x64-msvc）。
+    modules: ['@napi-rs'],
+    prefix: 'system-ocr',
+    platformName: (platform, arch) => systemOcrTarget(platform, arch),
+    foreignPattern: /^system-ocr-[a-z0-9]+-(arm64|x64|ia32|loong64|riscv64)(-msvc)?$/
   }
 ]
 
@@ -173,12 +285,16 @@ function pruneForeignArchNativeRuntimes(runtimeResources, platform, arch) {
   for (const runtime of NATIVE_RUNTIME_PACKAGES) {
     const modulesRoot = path.join(unpackedRoot, ...runtime.modules)
     if (!existsSync(modulesRoot)) continue
-    const expected = `${runtime.prefix}-${runtime.platformName(platform)}-${arch}`
-    const foreign = new RegExp(`^${runtime.prefix}-[a-z0-9]+-(arm64|x64|ia32|loong64|riscv64)$`)
+    const expected = `${runtime.prefix}-${runtime.platformName(platform, arch)}`
+    const foreign =
+      runtime.foreignPattern ||
+      new RegExp(`^${runtime.prefix}-[a-z0-9]+-(arm64|x64|ia32|loong64|riscv64)$`)
     for (const entry of readdirSync(modulesRoot, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name === expected || !foreign.test(entry.name)) continue
       rmSync(path.join(modulesRoot, entry.name), { recursive: true, force: true })
-      removed.push(runtime.modules.length ? `${runtime.modules.join('/')}/${entry.name}` : entry.name)
+      removed.push(
+        runtime.modules.length ? `${runtime.modules.join('/')}/${entry.name}` : entry.name
+      )
     }
   }
   return removed
@@ -223,6 +339,7 @@ exports.default = async function afterPack(context) {
     'Bundled ffmpeg'
   )
   validateSherpaRuntime(runtimeResources, context.electronPlatformName, arch)
+  validateSystemOcrRuntime(runtimeResources, context.electronPlatformName, arch)
   pruneIntelMacKeyTool(runtimeResources, context.electronPlatformName, arch)
   pruneForeignArchConnectors(runtimeResources, context.electronPlatformName, arch)
   pruneForeignArchNativeRuntimes(runtimeResources, context.electronPlatformName, arch)
@@ -231,6 +348,9 @@ exports.default = async function afterPack(context) {
     execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', ffmpegPath], {
       stdio: 'ignore'
     })
+    signMacosHelpers(runtimeResources)
+    const productName = context.packager.appInfo.productFilename
+    signMacosAppBundle(path.join(context.appOutDir, productName + '.app'))
   }
 
   if (context.electronPlatformName === 'win32') {
@@ -249,7 +369,6 @@ exports.default = async function afterPack(context) {
     }
     return
   }
-
 }
 
 exports.getRuntimeResources = getRuntimeResources
@@ -258,7 +377,12 @@ exports.validateReaderSkillRuntime = validateReaderSkillRuntime
 exports.validateFfmpegRuntime = validateFfmpegRuntime
 exports.validateSilkWasmRuntime = validateSilkWasmRuntime
 exports.validateSherpaRuntime = validateSherpaRuntime
+exports.validateSystemOcrRuntime = validateSystemOcrRuntime
 exports.pruneIntelMacKeyTool = pruneIntelMacKeyTool
 exports.pruneForeignArchConnectors = pruneForeignArchConnectors
 exports.pruneForeignArchNativeRuntimes = pruneForeignArchNativeRuntimes
 exports.validateRuntimeBinaryArchitecture = validateRuntimeBinaryArchitecture
+exports.findMacosHelperPaths = findMacosHelperPaths
+exports.isMacosCodeValid = isMacosCodeValid
+exports.signMacosHelpers = signMacosHelpers
+exports.signMacosAppBundle = signMacosAppBundle

@@ -17,6 +17,38 @@ describe('message parser', () => {
     ).toMatchObject({ type: 'sticker', md5: 'abcdefabcdefabcdefabcdefabcdefab' })
   })
 
+  it('reads the WeChat voice length in milliseconds and keeps fractional seconds', () => {
+    // 真机实测（2026-09-20）：voicelength 才是毫秒时长，length 是编码数据长度——别取错。
+    // 属性值取自一条真机采样的语音（1.6 秒，微信气泡显示 2"）。
+    const parsed = parseMessageContent(
+      '<msg><voicemsg endflag="1" cancelflag="0" forwardflag="0" voiceformat="4" voicelength="1600" length="6672" bufid="0" /></msg>',
+      34
+    )
+    expect(parsed).toEqual({ type: 'voice', duration: 1.6 })
+    // 误取 length 会得到 6.672 秒（把 2" 的语音显示成 0:07）——这条断言就是防这个回归。
+    expect(parsed).not.toEqual({ type: 'voice', duration: 6.672 })
+
+    // 微信四舍五入到整秒，取整必须在显示层做，不能在解析层丢精度。
+    expect(parseMessageContent('<msg><voicemsg voicelength="4211" /></msg>', 34)).toEqual({
+      type: 'voice',
+      duration: 4.211
+    })
+  })
+
+  it('leaves the voice duration undefined when the payload is missing or unusable', () => {
+    expect(parseMessageContent('', 34)).toEqual({ type: 'voice' })
+    expect(parseMessageContent('voice fixture', 34)).toEqual({ type: 'voice' })
+    expect(parseMessageContent('<msg><voicemsg voiceformat="4" /></msg>', 34)).toEqual({
+      type: 'voice'
+    })
+    expect(parseMessageContent('<msg><voicemsg voicelength="0" /></msg>', 34)).toEqual({
+      type: 'voice'
+    })
+    expect(parseMessageContent('<msg><voicemsg voicelength="abc" /></msg>', 34)).toEqual({
+      type: 'voice'
+    })
+  })
+
   it('keeps video metadata when WeChat omits every MD5 field', () => {
     const parsed = parseMessageContent(
       '<msg><videomsg length="6402169" playlength="30" cdnthumbwidth="224" cdnthumbheight="398" aeskey="25201cc658042689d1ad6747cea2b240" rawmd5="" /></msg>',
@@ -118,11 +150,340 @@ describe('message parser', () => {
     })
   })
 
+  it('renders the templated join-group notice instead of its hidden button label', () => {
+    // 微信 4.x 的 sysmsgtemplate：<plain> 为空、正文在 <template> 里用 $名称$ 引用 link，
+    // hidden="1" 的 link 是可点击按钮，不应作为正文。
+    const parsed = parseMessageContent(
+      [
+        '<sysmsg type="sysmsgtemplate">',
+        '<sysmsgtemplate><content_template type="tmpl_type_profilewithrevokeqrcode">',
+        '<plain><![CDATA[]]></plain>',
+        '<template><![CDATA["$adder$"通过扫描你分享的二维码加入群聊  $revoke$]]></template>',
+        '<link_list>',
+        '<link name="adder" type="link_profile"><memberlist><member>',
+        '<username><![CDATA[wxid_fixture_member]]></username>',
+        '<nickname><![CDATA[成员昵称]]></nickname>',
+        '</member></memberlist></link>',
+        '<link name="revoke" type="link_revoke_qrcode" hidden="1">',
+        '<title><![CDATA[撤销]]></title>',
+        '</link>',
+        '</link_list>',
+        '</content_template></sysmsgtemplate></sysmsg>'
+      ].join(''),
+      10000
+    )
+
+    expect(parsed).toMatchObject({
+      type: 'system',
+      content: '"成员昵称"通过扫描你分享的二维码加入群聊'
+    })
+  })
+
+  it('keeps parsing the legacy delchatroommember join-group notice', () => {
+    const parsed = parseMessageContent(
+      [
+        '<sysmsg type="delchatroommember"><delchatroommember>',
+        '<plain><![CDATA["成员昵称"通过扫描你分享的二维码加入群聊  ]]></plain>',
+        '<text><![CDATA["成员昵称"通过扫描你分享的二维码加入群聊  ]]></text>',
+        '<link><scene>qrcode</scene><text><![CDATA[  撤销]]></text>',
+        '<memberlist><username><![CDATA[wxid_fixture_member]]></username></memberlist>',
+        '</link>',
+        '</delchatroommember></sysmsg>'
+      ].join(''),
+      10000
+    )
+
+    expect(parsed).toMatchObject({
+      type: 'system',
+      content: '"成员昵称"通过扫描你分享的二维码加入群聊'
+    })
+  })
+
   it('uses an explicit unknown type for unsupported messages', () => {
     expect(parseMessageContent('opaque fixture payload', 999)).toEqual({
       type: 'unknown',
       raw: 'opaque fixture payload',
       messageType: 999
+    })
+  })
+
+  it('unmasks packed local_type low 32 bits', () => {
+    const packed = 1 + 5 * 0x100000000
+    expect(parseMessageContent('plain text body', packed)).toEqual({
+      type: 'text',
+      content: 'plain text body'
+    })
+  })
+
+  it('parses patMsg into system text', () => {
+    const xml = [
+      '<msg><appmsg>',
+      '<patMsg>',
+      '<template><![CDATA[$from$拍了拍$to$$pat$]]></template>',
+      '<fromusername><![CDATA[alice]]></fromusername>',
+      '<tousername><![CDATA[bob]]></tousername>',
+      '<pat><![CDATA[的头像]]></pat>',
+      '</patMsg>',
+      '</appmsg></msg>'
+    ].join('')
+    const parsed = parseMessageContent(xml, 49)
+    expect(parsed).toMatchObject({
+      type: 'system',
+      content: 'alice拍了拍bob的头像'
+    })
+  })
+
+  it('parses findernamecard as a read-only share card', () => {
+    const xml = [
+      '<msg><appmsg>',
+      '<type>51</type>',
+      '<title><![CDATA[视频号]]></title>',
+      '<findernamecard>',
+      '<username><![CDATA[finder_ab12]]></username>',
+      '<nickname><![CDATA[示例视频号]]></nickname>',
+      '</findernamecard>',
+      '</appmsg></msg>'
+    ].join('')
+    const parsed = parseMessageContent(xml, 49)
+    expect(parsed).toMatchObject({
+      type: 'share',
+      title: '示例视频号',
+      appname: '视频号',
+      typeVal: '51'
+    })
+  })
+
+  it('falls back to product item share without a title', () => {
+    const xml = [
+      '<msg><appmsg>',
+      '<type>2000</type>',
+      '<productitem>',
+      '<productName><![CDATA[测试商品]]></productName>',
+      '<sellingPrice><![CDATA[￥9.9]]></sellingPrice>',
+      '</productitem>',
+      '</appmsg></msg>'
+    ].join('')
+    const parsed = parseMessageContent(xml, 49)
+    expect(parsed).toMatchObject({
+      type: 'share',
+      title: '测试商品',
+      des: '￥9.9',
+      typeVal: '2000'
+    })
+  })
+
+  it('renders friend verify local_type 37 as system text', () => {
+    const xml = '<msg><nickname><![CDATA[新朋友]]></nickname><content><![CDATA[我是群里的]]></content></msg>'
+    const parsed = parseMessageContent(xml, 37)
+    expect(parsed).toMatchObject({
+      type: 'system',
+      content: '新朋友 · 我是群里的'
+    })
+  })
+
+  it('parses music share cards from song/album fields', () => {
+    const xml = [
+      '<msg><appmsg>',
+      '<type>3</type>',
+      '<title><![CDATA[晴天]]></title>',
+      '<des><![CDATA[周杰伦]]></des>',
+      '<url><![CDATA[https://music.example/song]]></url>',
+      '<songalbumurl><![CDATA[https://music.example/cover]]></songalbumurl>',
+      '<songlyric><![CDATA[故事的小黄花]]></songlyric>',
+      '</appmsg></msg>'
+    ].join('')
+    const parsed = parseMessageContent(xml, 49)
+    expect(parsed).toMatchObject({
+      type: 'share',
+      title: '晴天',
+      des: '周杰伦',
+      url: 'https://music.example/song',
+      appname: '音乐',
+      typeVal: '3'
+    })
+  })
+
+  it('parses subscribe template cards', () => {
+    const clean = [
+      '<msg><appmsg>',
+      '<template_header><![CDATA[服务通知]]></template_header>',
+      '<template_detail><![CDATA[您的订单已发货]]></template_detail>',
+      '<url><![CDATA[https://mp.example/notice]]></url>',
+      '<updatablemsg></updatablemsg>',
+      '</appmsg></msg>'
+    ].join('')
+    const parsed = parseMessageContent(clean, 49)
+    expect(parsed).toMatchObject({
+      type: 'share',
+      title: '服务通知',
+      des: '您的订单已发货',
+      appname: '订阅消息',
+      typeVal: 'subscribe'
+    })
+  })
+
+  it('parses kefu template cards and falls back to system text', () => {
+    const card = [
+      '<msg><appmsg>',
+      '<template_header><![CDATA[店铺客服]]></template_header>',
+      '<template_detail><![CDATA[点击查看订单]]></template_detail>',
+      '<opencustomerservicemsg></opencustomerservicemsg>',
+      '</appmsg></msg>'
+    ].join('')
+    expect(parseMessageContent(card, 49)).toMatchObject({
+      type: 'share',
+      title: '店铺客服',
+      des: '点击查看订单',
+      typeVal: 'kefu'
+    })
+    const menu = '<msg><appmsg><kefumenu></kefumenu></appmsg></msg>'
+    expect(parseMessageContent(menu, 49)).toMatchObject({
+      type: 'system',
+      content: '客服消息'
+    })
+  })
+
+  it('parses stream video cards', () => {
+    const xml = [
+      '<msg><appmsg>',
+      '<type>51</type>',
+      '<streamvideotitle><![CDATA[户外长视频]]></streamvideotitle>',
+      '<streamvideoword><![CDATA[点击播放]]></streamvideoword>',
+      '<streamvideoweburl><![CDATA[https://finder.example/v/1]]></streamvideoweburl>',
+      '<finderMegaVideo></finderMegaVideo>',
+      '</appmsg></msg>'
+    ].join('')
+    expect(parseMessageContent(xml, 49)).toMatchObject({
+      type: 'share',
+      title: '户外长视频',
+      des: '点击播放',
+      url: 'https://finder.example/v/1',
+      appname: '视频号',
+      typeVal: '51'
+    })
+  })
+
+  it('parses gift cards without enabling accept actions', () => {
+    const xml = [
+      '<msg><appmsg>',
+      '<title><![CDATA[生日礼物卡]]></title>',
+      '<des><![CDATA[送你一张礼物卡]]></des>',
+      '<giftcarditem><brandname><![CDATA[示例品牌]]></brandname></giftcarditem>',
+      '</appmsg></msg>'
+    ].join('')
+    expect(parseMessageContent(xml, 49)).toMatchObject({
+      type: 'share',
+      title: '生日礼物卡',
+      des: '送你一张礼物卡',
+      appname: '示例品牌',
+      typeVal: 'giftcard'
+    })
+  })
+
+  it('maps legacy local_type 2 and 8 without dropping content', () => {
+    expect(parseMessageContent('plain status line', 2)).toEqual({
+      type: 'text',
+      content: 'plain status line'
+    })
+    const gifLike =
+      '<msg><emoji md5="abcdefabcdefabcdefabcdefabcdefab" cdnurl="https://e.example/a.gif" /></msg>'
+    expect(parseMessageContent(gifLike, 8)).toMatchObject({
+      type: 'sticker',
+      md5: 'abcdefabcdefabcdefabcdefabcdefab'
+    })
+    expect(parseMessageContent('opaque type8', 8)).toMatchObject({
+      type: 'unknown',
+      messageType: 8
+    })
+  })
+
+  it('parses transfer wcpayinfo fields (type 2000)', () => {
+    // 2026-09 真机转账采样字段名（含微信原文 transcationid 拼写）
+    const xml = [
+      '<msg><appmsg appid="" sdkver="">',
+      '<title><![CDATA[微信转账]]></title>',
+      '<des><![CDATA[收到转账2900.00元。]]></des>',
+      '<type>2000</type>',
+      '<url><![CDATA[https://support.weixin.qq.com/upgrade]]></url>',
+      '<wcpayinfo>',
+      '<paysubtype>3</paysubtype>',
+      '<feedesc><![CDATA[￥2900.00]]></feedesc>',
+      '<transcationid><![CDATA[53010003370089202609134087894875]]></transcationid>',
+      '<transferid><![CDATA[1000050001202609130232821248942]]></transferid>',
+      '<invalidtime><![CDATA[1789348128]]></invalidtime>',
+      '<begintransfertime><![CDATA[1789261728]]></begintransfertime>',
+      '<effectivedate><![CDATA[1]]></effectivedate>',
+      '<pay_memo><![CDATA[房租]]></pay_memo>',
+      '<receiver_username><![CDATA[wxid_receiver]]></receiver_username>',
+      '<payer_username><![CDATA[]]></payer_username>',
+      '<transfer_status>2</transfer_status>',
+      '<trans_id><![CDATA[trans-fixture-1]]></trans_id>',
+      '<fee_type><![CDATA[CNY]]></fee_type>',
+      '<refund_bank_type><![CDATA[1]]></refund_bank_type>',
+      '</wcpayinfo></appmsg></msg>'
+    ].join('')
+    const parsed = parseMessageContent(xml, 49)
+    expect(parsed).toMatchObject({
+      type: 'share',
+      typeVal: '2000',
+      title: '微信转账',
+      transfer: {
+        paySubtype: '3',
+        amountText: '￥2900.00',
+        transcationId: '53010003370089202609134087894875',
+        transferId: '1000050001202609130232821248942',
+        invalidTime: '1789348128',
+        beginTransferTime: '1789261728',
+        effectiveDate: '1',
+        payMemo: '房租',
+        receiverUsername: 'wxid_receiver',
+        transferStatus: '2',
+        transferStatusText: '已收款',
+        transId: 'trans-fixture-1',
+        feeType: 'CNY',
+        refundBankType: '1'
+      }
+    })
+  })
+
+  it('parses red packet wcpayinfo fields (type 2001 / mmpayhb)', () => {
+    const xml = [
+      '<msg><appmsg appid="" sdkver="">',
+      '<title><![CDATA[中秋快乐]]></title>',
+      '<des><![CDATA[我给你发了一个红包，赶紧去拆!]]></des>',
+      '<type>2001</type>',
+      '<wcpayinfo>',
+      '<templateid><![CDATA[7a2a165d31da7fce6dd77e05c300028a]]></templateid>',
+      '<url><![CDATA[https://wxapp.tenpay.com/mmpayhb/wxhb_personalreceive?msgtype=1&sendid=1000039801202609247176036834007&sign=abc]]></url>',
+      '<iconurl><![CDATA[https://wx.gtimg.com/hongbao/1800/hb.png]]></iconurl>',
+      '<receivertitle><![CDATA[恭喜发财，大吉大利]]></receivertitle>',
+      '<sendertitle><![CDATA[中秋快乐，望重置]]></sendertitle>',
+      '<scenetext><![CDATA[微信红包]]></scenetext>',
+      '<senderdes><![CDATA[查看红包]]></senderdes>',
+      '<receiverdes><![CDATA[领取红包]]></receiverdes>',
+      '<nativeurl><![CDATA[wxpay://c2cbizmessagehandler/hongbao/receivehongbao?sendid=1]]></nativeurl>',
+      '<hb_type>1</hb_type>',
+      '<hb_status>1</hb_status>',
+      '<receive_status>2</receive_status>',
+      '</wcpayinfo></appmsg></msg>'
+    ].join('')
+    const parsed = parseMessageContent(xml, 49)
+    expect(parsed).toMatchObject({
+      type: 'redPacket',
+      title: '中秋快乐，望重置',
+      pay: {
+        templateId: '7a2a165d31da7fce6dd77e05c300028a',
+        receiveTitle: '恭喜发财，大吉大利',
+        sendTitle: '中秋快乐，望重置',
+        sceneText: '微信红包',
+        senderDes: '查看红包',
+        receiverDes: '领取红包',
+        sendId: '1000039801202609247176036834007',
+        hbType: '1',
+        hbStatus: '1',
+        receiveStatus: '2',
+        redPacketStatusText: '已领取'
+      }
     })
   })
 })

@@ -25,6 +25,7 @@ import { mergeCachedSelfInfo, type CachedSelfInfo } from './services/bootstrap-c
 import type { VoiceRecognitionUseCase } from './voice-pipeline/voice-recognition-use-case'
 import { imageFileQuality } from '../shared/image-quality'
 import { resolveMemberName } from '../shared/member-names'
+import { FavoritesService } from './favorites-service'
 import { filesystemSafeName } from '../shared/contact-name'
 
 const jobs = new Set<string>()
@@ -853,6 +854,28 @@ async function runSingleExport(
         percent: Math.max(1, Math.round(((targetOrder + 1) / targets.length) * 10))
       })
     }
+    if (request.includeFavorites) {
+      const wcdb = chat.getChatDb()?.getWcdb4Client()
+      if (wcdb) {
+        try {
+          const favoriteMessages = await new FavoritesService(wcdb).listExportMessages(500)
+          for (const [messageOrder, message] of favoriteMessages.entries()) {
+            if (!request.kinds.includes(kindOf(message))) continue
+            messageEntries.push({
+              message: {
+                ...message,
+                exportConversationId: 'favorites',
+                exportConversationName: '收藏'
+              },
+              targetOrder: targets.length,
+              messageOrder
+            })
+          }
+        } catch (error) {
+          console.warn('[export] favorites merge skipped:', error)
+        }
+      }
+    }
     const messages = messageEntries
       .sort((left, right) => {
         const byTime = Number(left.message.createTime || 0) - Number(right.message.createTime || 0)
@@ -1246,10 +1269,15 @@ async function runSingleExport(
               const wavChannels =
                 audioBuffer.length >= 44 ? audioBuffer.readUInt16LE(22) : 1
               const pcmBytes = Math.max(0, audioBuffer.length - 44)
-              message.voiceDuration = Math.max(
-                1,
-                Math.round(pcmBytes / (wavSampleRate * wavChannels * 2))
-              )
+              // 口径统一：消息解析阶段已从 <voicemsg voicelength> 拿到微信的原始秒数（带小数），
+              // 它是唯一权威来源，不要覆盖。只有拿不到时才退回用 PCM 字节数估算——
+              // 那份估算是整秒、且下限 1 秒（WAV 缺失头部时的兜底），语义不同。
+              if (message.voiceDuration == null) {
+                message.voiceDuration = Math.max(
+                  1,
+                  Math.round(pcmBytes / (wavSampleRate * wavChannels * 2))
+                )
+              }
             } catch (error) {
               keepMediaError(
                 request,

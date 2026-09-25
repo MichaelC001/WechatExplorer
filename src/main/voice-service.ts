@@ -1,4 +1,6 @@
 import { createHash } from 'crypto'
+import { promises as fs } from 'fs'
+import { join } from 'path'
 import { Wcdb4Client } from './wcdb4-client'
 import {
   createDefaultAudioDecoderRegistry,
@@ -73,11 +75,19 @@ export class VoiceService {
       pcmResult.audio.sampleRate,
       pcmResult.audio.channels
     )
+    // duration 由 PCM 字节数反算（wavData 去掉 44 字节头即 PCM），
+    // 用来和用户实际听到的长度对齐、排查「时长显示不对」这类问题。
+    // 注意它**不是权威值**：权威时长在消息 XML 的 <voicemsg voicelength>（毫秒），
+    // 显示层以那个为准；这里只是解码结果的自证。
+    const durationSeconds =
+      pcmData.length / (pcmResult.audio.sampleRate * pcmResult.audio.channels * 2)
     console.log(
       '[VoiceService] wavData length:',
       wavData.length,
       'base64 length:',
-      wavData.toString('base64').length
+      wavData.toString('base64').length,
+      'duration:',
+      `${durationSeconds.toFixed(2)}s`
     )
 
     const base64Data = wavData.toString('base64')
@@ -203,6 +213,17 @@ export class VoiceService {
       svrId || 0
     )
     if (!voiceResult.success || !voiceResult.hex) {
+      const disk = await this.resolveFromDisk(sessionId, localId, createTime, svrId)
+      if (disk?.length) {
+        return {
+          success: true,
+          source: {
+            data: disk,
+            codec: 'silk',
+            sourceHash: createHash('sha256').update(disk).digest('hex')
+          }
+        }
+      }
       return { success: false, error: voiceResult.error || '获取语音数据失败' }
     }
 
@@ -229,6 +250,38 @@ export class VoiceService {
       candidates.push(sessionId.replace('@chatroom', ''))
     }
     return candidates
+  }
+
+  /**
+   * V2：旁路 `wcdb_get_voice_data`，在账号目录下找语音文件
+   * （`GetMsgAudioPath` 同域：Message / MsgAndFiles / VoiceTemp）。
+   */
+  private async resolveFromDisk(
+    sessionId: string,
+    localId: number,
+    createTime: number,
+    svrId?: string | number
+  ): Promise<Buffer | null> {
+    const accountRoot = this.wcdb4Client.getAccountRoot?.()
+    if (!accountRoot) return null
+    const needles = [
+      String(localId),
+      String(createTime),
+      svrId !== undefined && svrId !== null && String(svrId) !== '0' ? String(svrId) : '',
+      sessionId.replace(/@chatroom$/, '')
+    ].filter(Boolean)
+    const files = await listVoiceDiskCandidates(accountRoot)
+    for (const file of files) {
+      const name = file.toLowerCase()
+      if (!needles.some((needle) => needle && name.includes(needle.toLowerCase()))) continue
+      try {
+        const data = await fs.readFile(file)
+        if (data.length) return data
+      } catch {
+        // try next candidate
+      }
+    }
+    return null
   }
 
   private decodeVoiceBlob(hex: string): Buffer | null {
@@ -265,4 +318,52 @@ export class VoiceService {
     header.writeUInt32LE(pcmLength, 40)
     return Buffer.concat([header, pcmData])
   }
+}
+
+const VOICE_DISK_EXTS = new Set(['.aud', '.silk', '.amr'])
+const VOICE_DISK_DIRS = [
+  'msg/Message',
+  'msg/MsgAndFiles',
+  'msg/VoiceTemp',
+  'msg/History',
+  'Message',
+  'MsgAndFiles',
+  'VoiceTemp',
+  // 真机布局（2026-09-24）：cache/YYYY-MM/Message/<md5>/VoiceTemp/
+  'cache'
+]
+
+/** 语音磁盘候选路径（扩展名/目录与 GetMsgAudioPath / VoiceTemp 对齐）。 */
+export async function listVoiceDiskCandidates(accountRoot: string): Promise<string[]> {
+  const out: string[] = []
+  const walk = async (dir: string, depth: number): Promise<void> => {
+    if (out.length > 200 || depth > 6) return
+    let names: string[]
+    try {
+      names = await fs.readdir(dir)
+    } catch {
+      return
+    }
+    for (const name of names) {
+      const full = join(dir, name)
+      let stat: Awaited<ReturnType<typeof fs.stat>>
+      try {
+        stat = await fs.stat(full)
+      } catch {
+        continue
+      }
+      if (stat.isDirectory()) {
+        await walk(full, depth + 1)
+        continue
+      }
+      const ext = name.slice(name.lastIndexOf('.')).toLowerCase()
+      if (!VOICE_DISK_EXTS.has(ext)) continue
+      out.push(full)
+    }
+  }
+  for (const rel of VOICE_DISK_DIRS) {
+    await walk(join(accountRoot, rel), 0)
+    if (out.length > 200) break
+  }
+  return out
 }
