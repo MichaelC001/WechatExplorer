@@ -40,6 +40,10 @@ export interface ExportRequest {
   includeVoiceTranscripts?: boolean
   /** 合并本机收藏（favorite.db）只读卡片。 */
   includeFavorites?: boolean
+  /** 合并朋友圈时间线（sns.db）只读卡片。 */
+  includeSnsTimeline?: boolean
+  /** 合并好友申请（general.db FMessageTable）。 */
+  includeFMessage?: boolean
   preferOriginal?: boolean
   fallbackThumbnail?: boolean
   keepMissing?: boolean
